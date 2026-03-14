@@ -1,0 +1,172 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Sora:wght@300;400;500;600;700;800&family=DM+Sans:ital,wght@0,400;0,500;0,700;1,400&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-body: "Sora", "system-ui", sans-serif;
+  --font-heading: "Space Grotesk", "system-ui", sans-serif;
+  --font-display: "DM Sans", "system-ui", sans-serif;
+  
+  --background: 265 40% 8%;
+  --foreground: 0 0% 92%;
+  
+  --card: 265 30% 12%;
+  --card-foreground: 0 0% 92%;
+  
+  --primary: 265 70% 65%;
+  --primary-foreground: 0 0% 100%;
+  
+  --secondary: 25 90% 55%;
+  --secondary-foreground: 0 0% 100%;
+  
+  --accent: 170 60% 45%;
+  --accent-foreground: 0 0% 100%;
+  
+  --muted: 265 25% 18%;
+  --muted-foreground: 265 15% 65%;
+  
+  --border: 265 25% 25%;
+  --input: 265 25% 25%;
+  --ring: 265 70% 65%;
+  
+  --bts-purple: 265 70% 65%;
+  --bts-pink: 320 65% 70%;
+  --bts-deep: 265 80% 30%;
+  
+  --india-saffron: 25 90% 55%;
+  --india-teal: 170 60% 45%;
+  --india-marigold: 40 90% 55%;
+  --india-turmeric: 45 80% 55%;
+  
+  --radius: 1rem;
+}
+
+* {
+  @apply border-border;
+}
+
+body {
+  @apply bg-background text-foreground antialiased;
+  background: 
+    radial-gradient(ellipse at 0% 0%, hsl(265 70% 65% / 0.15) 0%, transparent 50%),
+    radial-gradient(ellipse at 100% 100%, hsl(25 90% 55% / 0.12) 0%, transparent 50%),
+    radial-gradient(ellipse at 50% 80%, hsl(170 60% 45% / 0.08) 0%, transparent 50%),
+    linear-gradient(180deg, hsl(265 40% 8%) 0%, hsl(265 35% 6%) 100%);
+  min-height: 100vh;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.6;
+  background-image: 
+    radial-gradient(circle at 20% 20%, hsl(265 70% 65% / 0.08) 0%, transparent 30%),
+    radial-gradient(circle at 80% 80%, hsl(25 90% 55% / 0.06) 0%, transparent 30%),
+    radial-gradient(circle at 60% 40%, hsl(170 60% 45% / 0.04) 0%, transparent 40%);
+  mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.3), transparent 80%);
+}
+
+a {
+  @apply text-inherit no-underline transition-colors;
+}
+
+::selection {
+  background: hsl(265 70% 65% / 0.4);
+  color: hsl(0 0% 100%);
+}
+
+@layer components {
+  .card-dark {
+    @apply bg-card/80 backdrop-blur-md border border-white/10 rounded-2xl shadow-xl transition-all duration-300;
+  }
+  
+  .card-dark:hover {
+    @apply border-primary/30 -translate-y-0.5 shadow-2xl shadow-purple-900/20;
+  }
+  
+  .btn-bts {
+    @apply inline-flex items-center justify-center gap-2 px-6 py-3 font-semibold rounded-xl transition-all duration-200;
+  }
+  
+  .btn-bts-primary {
+    @apply btn-bts bg-gradient-to-r from-[hsl(265,70%,65%)] to-[hsl(265,70%,55%)] text-white hover:shadow-lg hover:shadow-purple-500/30 hover:scale-[1.02];
+  }
+  
+  .btn-bts-secondary {
+    @apply btn-bts bg-transparent border-2 border-[hsl(265,70%,65%)]/50 text-[hsl(265,70%,65%)] hover:bg-[hsl(265,70%,65%)]/10 hover:border-[hsl(265,70%,65%)];
+  }
+  
+  .gradient-text {
+    @apply bg-gradient-to-r from-[hsl(265,70%,65%)] via-[hsl(320,65%,70%)] to-[hsl(25,90%,55%)] bg-clip-text text-transparent;
+  }
+  
+  .section-patterened {
+    @apply relative overflow-hidden;
+  }
+  
+  .section-patterened::before {
+    content: "";
+    @apply absolute inset-0 opacity-20;
+    background-image: 
+      radial-gradient(circle at 20% 50%, hsl(265 70% 65% / 0.2) 0%, transparent 40%),
+      radial-gradient(circle at 80% 50%, hsl(25 90% 55% / 0.15) 0%, transparent 40%);
+  }
+  
+  .nav-link {
+    @apply relative px-4 py-2 text-sm font-medium text-[hsl(265,15%,65%)] hover:text-white transition-colors;
+  }
+  
+  .nav-link::after {
+    content: "";
+    @apply absolute bottom-0 left-1/2 w-0 h-0.5 bg-[hsl(265,70%,65%)] transition-all duration-200 -translate-x-1/2;
+  }
+  
+  .nav-link:hover::after {
+    @apply w-full;
+  }
+  
+  .input-dark {
+    @apply w-full px-4 py-3 bg-[hsl(265,25%,12%)] border border-white/10 rounded-xl text-white placeholder:text-[hsl(265,15%,50%)] focus:outline-none focus:border-[hsl(265,70%,65%)] focus:ring-2 focus:ring-[hsl(265,70%,65%)]/20 transition-all duration-200;
+  }
+  
+  .glass-effect {
+    @apply bg-white/5 backdrop-blur-lg border border-white/10;
+  }
+  
+  .glow-purple {
+    box-shadow: 0 0 30px -5px hsl(265 70% 65% / 0.3);
+  }
+  
+  .glow-saffron {
+    box-shadow: 0 0 30px -5px hsl(25 90% 55% / 0.3);
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+  
+  .text-muted {
+    @apply text-[hsl(265,15%,65%)];
+  }
+  
+  .animate-in {
+    animation: fadeIn 0.4s ease-out;
+  }
+  
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  
+  .stagger-1 { animation-delay: 0.05s; }
+  .stagger-2 { animation-delay: 0.1s; }
+  .stagger-3 { animation-delay: 0.15s; }
+  .stagger-4 { animation-delay: 0.2s; }
+  .stagger-5 { animation-delay: 0.25s; }
+}
