@@ -4,3 +4,9 @@
 
 [build.environment]
   NODE_VERSION = "20"
+
+[context.production]
+  branch = "master"
+
+[context.production]
+  branch = "master"
