@@ -10,6 +10,17 @@ const streamEventSchema = new Schema(
     artistKey: { type: String, required: true },
     trackKey: { type: String, required: true },
     albumKey: { type: String },
+    normalizedTrackKey: { type: String, index: true },
+    normalizedArtistKey: { type: String, index: true },
+    catalogTrackId: { type: Schema.Types.ObjectId, ref: "CatalogTrack", index: true },
+    catalogAlbumId: { type: Schema.Types.ObjectId, ref: "CatalogAlbum", index: true },
+    catalogTrackSpotifyId: { type: String, index: true },
+    catalogAlbumSpotifyId: { type: String, index: true },
+    isBTSFamily: { type: Boolean, default: false, index: true },
+    stateKey: { type: String, index: true },
+    stateLabel: { type: String },
+    placeKey: { type: String, index: true },
+    placeLabel: { type: String },
     rawRef: { type: String }
   },
   { timestamps: true }
@@ -17,6 +28,8 @@ const streamEventSchema = new Schema(
 
 streamEventSchema.index({ provider: 1, providerUserKey: 1, providerEventKey: 1 }, { unique: true })
 streamEventSchema.index({ userId: 1, playedAt: -1 })
+streamEventSchema.index({ isBTSFamily: 1, playedAt: -1, stateKey: 1 })
+streamEventSchema.index({ isBTSFamily: 1, playedAt: -1, placeKey: 1 })
 
 const streamSyncCheckpointSchema = new Schema(
   {

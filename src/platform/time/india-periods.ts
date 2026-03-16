@@ -101,6 +101,18 @@ export function getCurrentIndiaPeriods(now = new Date()) {
   }
 }
 
+export function getNextIndiaPeriod(cadence: MissionCadence, now = new Date()) {
+  const currentPeriod = getIndiaPeriod(cadence, now)
+  return getIndiaPeriod(cadence, new Date(currentPeriod.endsAt.getTime() + 1000))
+}
+
+export function getNextIndiaPeriods(now = new Date()) {
+  return {
+    daily: getNextIndiaPeriod("daily", now),
+    weekly: getNextIndiaPeriod("weekly", now)
+  }
+}
+
 export function isWithinPeriod(date: Date, period: IndiaPeriod) {
   return date >= period.startsAt && date < period.endsAt
 }

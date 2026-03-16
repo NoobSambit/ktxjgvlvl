@@ -1,12 +1,13 @@
 import { fetchKworbSnapshot } from "@/platform/integrations/charts/kworb"
-import { getTrackerAdapter } from "@/platform/integrations/trackers"
 import { connectToDatabase } from "@/platform/db/mongoose"
 import { TrackerConnectionModel } from "@/platform/db/models/tracker"
+import { materializeLocationActivity } from "@/modules/activity-map/service"
 import { materializeLeaderboards } from "@/modules/leaderboards/service"
 import {
   generateDailyMissionInstances,
   generateWeeklyMissionInstances
 } from "@/modules/missions/service"
+import { syncVerifiedTrackerConnections } from "@/modules/streaming/service"
 import { jobKeys, type JobKey } from "@/platform/queues/job-types"
 
 export type JobResult = {
@@ -15,36 +16,40 @@ export type JobResult = {
   summary: string
 }
 
-export async function runJob(jobKey: JobKey): Promise<JobResult> {
+export async function runJob(
+  jobKey: JobKey,
+  options: {
+    force?: boolean
+  } = {}
+): Promise<JobResult> {
   switch (jobKey) {
     case jobKeys.syncActiveTrackers: {
       await connectToDatabase()
-      const adapter = getTrackerAdapter("lastfm")
       const verifiedConnections = await TrackerConnectionModel.countDocuments({
         provider: "lastfm",
         verificationStatus: "verified"
       })
-      const payload = adapter ? await adapter.fetchSince({ username: "demo-army" }) : { events: [] }
+      const summary = await syncVerifiedTrackerConnections()
       return {
         jobKey,
         status: "completed",
-        summary: `Verified ${verifiedConnections} Last.fm connections; demo sync fetched ${payload.events.length} events`
+        summary: `Synced ${verifiedConnections} verified Last.fm connections; imported ${summary.syncedEvents} events and scored ${summary.scoredEvents} BTS-family streams${summary.failedUsers > 0 ? `; ${summary.failedUsers} connection(s) failed` : ""}`
       }
     }
     case jobKeys.generateDailyMissions: {
-      const instances = await generateDailyMissionInstances()
+      const instances = await generateDailyMissionInstances({ force: options.force })
       return {
         jobKey,
         status: "completed",
-        summary: `Generated ${instances.length} daily mission instances`
+        summary: `${options.force ? "Force-regenerated" : "Generated"} ${instances.length} daily mission instances`
       }
     }
     case jobKeys.generateWeeklyMissions: {
-      const instances = await generateWeeklyMissionInstances()
+      const instances = await generateWeeklyMissionInstances({ force: options.force })
       return {
         jobKey,
         status: "completed",
-        summary: `Generated ${instances.length} weekly mission instances`
+        summary: `${options.force ? "Force-regenerated" : "Generated"} ${instances.length} weekly mission instances`
       }
     }
     case jobKeys.materializeLeaderboards: {
@@ -53,6 +58,14 @@ export async function runJob(jobKey: JobKey): Promise<JobResult> {
         jobKey,
         status: "completed",
         summary: `Materialized ${result.boardsMaterialized} leaderboard snapshots`
+      }
+    }
+    case jobKeys.materializeLocationActivity: {
+      const result = await materializeLocationActivity()
+      return {
+        jobKey,
+        status: "completed",
+        summary: `Materialized ${result.snapshotsMaterialized} location activity snapshots`
       }
     }
     case jobKeys.scrapeChartSnapshots: {

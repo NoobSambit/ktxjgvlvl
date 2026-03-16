@@ -2,39 +2,67 @@ import { Schema, model, models } from "mongoose"
 
 const leaderboardBoardSchema = new Schema(
   {
-    scopeType: { type: String, enum: ["national", "state", "city"], required: true },
-    scopeKey: { type: String, required: true },
-    scopeLabel: { type: String, required: true },
+    schemaVersion: { type: Number, default: 2, index: true },
+    boardType: { type: String, enum: ["individual", "state"], required: true, index: true },
+    scopeType: { type: String },
+    scopeKey: { type: String },
+    scopeLabel: { type: String },
     period: { type: String, enum: ["daily", "weekly"], required: true },
-    periodKey: { type: String, required: true },
+    periodKey: { type: String, required: true, index: true },
     startsAt: { type: Date, required: true },
     endsAt: { type: Date, required: true },
-    isDirty: { type: Boolean, default: true }
+    isDirty: { type: Boolean, default: true },
+    lastMaterializedAt: { type: Date }
   },
   { timestamps: true }
 )
 
-leaderboardBoardSchema.index({ scopeType: 1, scopeKey: 1, periodKey: 1 }, { unique: true })
+leaderboardBoardSchema.index({ schemaVersion: 1, boardType: 1, periodKey: 1 }, { unique: true })
 
-const leaderboardScoreSchema = new Schema(
+const leaderboardEntrySchema = new Schema(
   {
     boardId: { type: Schema.Types.ObjectId, required: true, ref: "LeaderboardBoard", index: true },
-    userId: { type: Schema.Types.ObjectId, required: true, ref: "User", index: true },
+    competitorType: { type: String, enum: ["user", "state"], required: true },
+    competitorKey: { type: String, required: true, index: true },
+    userId: { type: Schema.Types.ObjectId, ref: "User", index: true },
+    stateKey: { type: String },
+    displayName: { type: String, required: true },
     score: { type: Number, default: 0 },
-    displayName: { type: String, default: "" },
-    username: { type: String, default: "" },
-    state: { type: String, default: "" },
-    city: { type: String, default: "" },
-    streakDays: { type: Number, default: 0 },
-    lastQualifiedAt: { type: Date },
-    rank: { type: Number },
-    previousRank: { type: Number }
+    rank: { type: Number, default: 0 },
+    previousRank: { type: Number },
+    lastQualifiedAt: { type: Date }
   },
   { timestamps: true }
 )
 
-leaderboardScoreSchema.index({ boardId: 1, userId: 1 }, { unique: true })
-leaderboardScoreSchema.index({ boardId: 1, score: -1, lastQualifiedAt: 1, userId: 1 })
+leaderboardEntrySchema.index({ boardId: 1, competitorKey: 1 }, { unique: true })
+leaderboardEntrySchema.index({ boardId: 1, rank: 1 })
+
+const leaderboardPointEventSchema = new Schema(
+  {
+    boardId: { type: Schema.Types.ObjectId, required: true, ref: "LeaderboardBoard", index: true },
+    boardType: { type: String, enum: ["individual", "state"], required: true },
+    period: { type: String, enum: ["daily", "weekly"], required: true },
+    periodKey: { type: String, required: true, index: true },
+    competitorType: { type: String, enum: ["user", "state"], required: true },
+    competitorKey: { type: String, required: true, index: true },
+    userId: { type: Schema.Types.ObjectId, ref: "User", index: true },
+    stateKey: { type: String },
+    displayName: { type: String, required: true },
+    points: { type: Number, default: 0 },
+    occurredAt: { type: Date, required: true, index: true },
+    sourceType: {
+      type: String,
+      enum: ["verified_stream", "mission_completion", "admin_adjustment"],
+      required: true
+    },
+    sourceId: { type: String, required: true },
+    dedupeKey: { type: String, required: true, unique: true }
+  },
+  { timestamps: true }
+)
+
+leaderboardPointEventSchema.index({ boardId: 1, competitorKey: 1, createdAt: -1 })
 
 const leaderboardRankSnapshotSchema = new Schema(
   {
@@ -48,8 +76,10 @@ const leaderboardRankSnapshotSchema = new Schema(
 
 export const LeaderboardBoardModel =
   models.LeaderboardBoard || model("LeaderboardBoard", leaderboardBoardSchema)
-export const LeaderboardScoreModel =
-  models.LeaderboardScore || model("LeaderboardScore", leaderboardScoreSchema)
+export const LeaderboardEntryModel =
+  models.LeaderboardEntry || model("LeaderboardEntry", leaderboardEntrySchema)
+export const LeaderboardPointEventModel =
+  models.LeaderboardPointEvent || model("LeaderboardPointEvent", leaderboardPointEventSchema)
 export const LeaderboardRankSnapshotModel =
   models.LeaderboardRankSnapshot ||
   model("LeaderboardRankSnapshot", leaderboardRankSnapshotSchema)

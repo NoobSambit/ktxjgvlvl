@@ -5,7 +5,7 @@ import { connectTracker, listTrackerConnections } from "@/modules/trackers/servi
 export const dynamic = "force-dynamic"
 
 const trackerSchema = z.object({
-  provider: z.enum(["lastfm", "musicat", "statsfm"]),
+  provider: z.enum(["lastfm"]),
   username: z.string().min(2)
 })
 

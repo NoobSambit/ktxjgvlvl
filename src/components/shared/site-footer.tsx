@@ -2,6 +2,7 @@ import Link from "next/link"
 import { Music4, Heart } from "lucide-react"
 
 const footerLinks = [
+  { href: "/profile", label: "Profile" },
   { href: "/missions", label: "Missions" },
   { href: "/leaderboards", label: "Leaderboards" },
   { href: "/wiki", label: "Wiki" },
@@ -39,6 +40,10 @@ export function SiteFooter() {
               <Heart className="w-3.5 h-3.5 text-[hsl(265,70%,65%)] fill-current" />
               <span>Made with love by Indian ARMY</span>
             </div>
+            <p className="max-w-md text-xs text-[hsl(265,15%,55%)]">
+              India activity map boundaries by geoBoundaries gbOpen. Locality registry and hotspot place names from
+              GeoNames.
+            </p>
           </div>
           
           <div>

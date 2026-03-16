@@ -5,6 +5,7 @@ import { getSessionUser } from "@/platform/auth/session"
 
 const links = [
   { href: "/dashboard", label: "My ARMY Room" },
+  { href: "/profile", label: "Profile" },
   { href: "/missions", label: "Missions" },
   { href: "/leaderboards", label: "Leaderboards" },
   { href: "/charts", label: "Charts" },

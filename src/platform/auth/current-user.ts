@@ -21,30 +21,8 @@ export async function getCurrentUserRecord() {
     })
   }
 
-  const regionUpdate = session.state && session.city
-    ? {
-        "region.country": "India",
-        "region.state": session.state,
-        "region.city": session.city,
-        "region.confirmedAt": new Date(),
-        "region.source": "user_confirmed"
-      }
-    : {}
-
-  const user = await UserModel.findOneAndUpdate(
+  const user = await UserModel.findOne(
     { _id: session.id, sessionKey: session.sessionKey },
-    {
-      $set: {
-        displayName: session.displayName,
-        username: session.username,
-        roles: session.roles,
-        status: "active",
-        ...regionUpdate
-      }
-    },
-    {
-      new: true
-    }
   )
 
   if (!user) {

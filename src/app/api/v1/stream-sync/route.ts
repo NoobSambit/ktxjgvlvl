@@ -3,13 +3,20 @@ import { z } from "zod"
 import { syncStreamingActivity } from "@/modules/streaming/service"
 
 const syncSchema = z.object({
-  provider: z.enum(["lastfm", "musicat", "statsfm"]),
+  provider: z.enum(["lastfm"]),
   username: z.string().min(2)
 })
 
 export async function POST(request: Request) {
-  const body = syncSchema.parse(await request.json())
-  const summary = await syncStreamingActivity(body.provider, body.username)
+  try {
+    const body = syncSchema.parse(await request.json())
+    const summary = await syncStreamingActivity(body.provider, body.username)
 
-  return NextResponse.json({ summary })
+    return NextResponse.json({ summary })
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Failed to sync streaming activity." },
+      { status: 400 }
+    )
+  }
 }

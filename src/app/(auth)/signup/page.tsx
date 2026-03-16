@@ -6,9 +6,9 @@ import { Sparkles, MapPin, Music4, Trophy } from "lucide-react"
 export default function SignUpPage() {
   const steps = [
     { icon: Sparkles, title: "Choose a username", desc: "Your identity on leaderboards and project pages" },
-    { icon: MapPin, title: "Add your location", desc: "City and state for local rankings" },
+    { icon: MapPin, title: "Confirm your state", desc: "State is required for scoring. City is optional." },
     { icon: Music4, title: "Connect tracker", desc: "Link Last.fm to verify your streams" },
-    { icon: Trophy, title: "Join the race", desc: "Compete on city and state leaderboards" }
+    { icon: Trophy, title: "Join the race", desc: "Compete on individual and state leaderboards" }
   ]
 
   return (
@@ -17,7 +17,7 @@ export default function SignUpPage() {
         <PageHero
           eyebrow="Join the ARMY"
           title="Start your journey today"
-          description="Create your account, connect with Indian ARMY, and make every stream count toward our collective goals."
+          description="Create your account, lock in your state for scoring, and optionally add a city or town for the India activity map."
         />
         
         <div className="grid gap-3 sm:grid-cols-2">
@@ -45,7 +45,7 @@ export default function SignUpPage() {
             <Sparkles className="w-7 h-7 text-white" />
           </div>
           <CardTitle className="text-2xl">Create your account</CardTitle>
-          <p className="text-sm text-muted-foreground mt-2">Join thousands of Indian ARMY members</p>
+          <p className="text-sm text-muted-foreground mt-2">State is mandatory. City can wait.</p>
         </CardHeader>
         <CardContent>
           <SignUpForm />

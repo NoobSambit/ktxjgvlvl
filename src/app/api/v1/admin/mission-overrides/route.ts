@@ -1,22 +1,31 @@
 import { NextResponse } from "next/server"
 import { z } from "zod"
 import {
-  clearMissionOverrideForCurrentPeriod,
-  upsertMissionOverrideForCurrentPeriod
+  clearMissionOverrideForNextPeriod,
+  upsertMissionOverrideForNextPeriod
 } from "@/modules/missions/service"
 
 export const dynamic = "force-dynamic"
 
 const overrideSchema = z.object({
-  slotKey: z.enum(["daily_songs", "daily_albums", "weekly_songs", "weekly_albums"]),
-  itemKeys: z.array(z.string().min(1)),
-  rewardPoints: z.number().int().positive().optional()
+  missionCellKey: z.enum([
+    "daily_india",
+    "daily_individual",
+    "daily_state",
+    "weekly_india",
+    "weekly_individual",
+    "weekly_state"
+  ]),
+  mechanicType: z.enum(["track_streams", "album_completions"]),
+  targetKeys: z.array(z.string().min(1)),
+  goalUnits: z.number().int().positive(),
+  rewardPoints: z.number().int().positive()
 })
 
 export async function POST(request: Request) {
   try {
     const body = overrideSchema.parse(await request.json())
-    const state = await upsertMissionOverrideForCurrentPeriod(body)
+    const state = await upsertMissionOverrideForNextPeriod(body)
 
     return NextResponse.json({ state })
   } catch (error) {
@@ -30,18 +39,20 @@ export async function POST(request: Request) {
 export async function DELETE(request: Request) {
   try {
     const { searchParams } = new URL(request.url)
-    const slotKey = searchParams.get("slotKey")
+    const missionCellKey = searchParams.get("missionCellKey")
 
     if (
-      slotKey !== "daily_songs" &&
-      slotKey !== "daily_albums" &&
-      slotKey !== "weekly_songs" &&
-      slotKey !== "weekly_albums"
+      missionCellKey !== "daily_india" &&
+      missionCellKey !== "daily_individual" &&
+      missionCellKey !== "daily_state" &&
+      missionCellKey !== "weekly_india" &&
+      missionCellKey !== "weekly_individual" &&
+      missionCellKey !== "weekly_state"
     ) {
-      return NextResponse.json({ error: "Valid slotKey is required." }, { status: 400 })
+      return NextResponse.json({ error: "Valid missionCellKey is required." }, { status: 400 })
     }
 
-    const state = await clearMissionOverrideForCurrentPeriod(slotKey)
+    const state = await clearMissionOverrideForNextPeriod(missionCellKey)
 
     return NextResponse.json({ state })
   } catch (error) {

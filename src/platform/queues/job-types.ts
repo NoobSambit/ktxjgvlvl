@@ -3,6 +3,7 @@ export const jobKeys = {
   generateDailyMissions: "generate-daily-missions",
   generateWeeklyMissions: "generate-weekly-missions",
   materializeLeaderboards: "materialize-leaderboards",
+  materializeLocationActivity: "materialize-location-activity",
   scrapeChartSnapshots: "scrape-chart-snapshots"
 } as const
 

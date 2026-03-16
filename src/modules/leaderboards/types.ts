@@ -1,20 +1,18 @@
 export type LeaderboardEntryView = {
   rank: number
+  competitorType: "user" | "state"
+  competitorKey: string
   userId?: string
+  stateKey?: string
   displayName: string
   score: number
-  state: string
-  city: string
-  streakDays: number
   previousRank?: number | null
   isCurrentUser?: boolean
 }
 
 export type LeaderboardBoardView = {
   boardId: string
-  scopeType: "state" | "city"
-  scopeKey: string
-  scopeLabel: string
+  boardType: "individual" | "state"
   period: "daily" | "weekly"
   periodKey: string
   startsAt: string
@@ -22,4 +20,5 @@ export type LeaderboardBoardView = {
   headline: string
   entries: LeaderboardEntryView[]
   currentUserEntry?: LeaderboardEntryView | null
+  currentStateEntry?: LeaderboardEntryView | null
 }

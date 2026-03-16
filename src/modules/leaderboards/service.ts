@@ -2,80 +2,89 @@ import { Types } from "mongoose"
 import { getCurrentUserRecord } from "@/platform/auth/current-user"
 import {
   LeaderboardBoardModel,
-  LeaderboardRankSnapshotModel,
-  LeaderboardScoreModel
+  LeaderboardEntryModel,
+  LeaderboardPointEventModel,
+  LeaderboardRankSnapshotModel
 } from "@/platform/db/models/leaderboards"
 import { connectToDatabase } from "@/platform/db/mongoose"
+import { TrackerConnectionModel } from "@/platform/db/models/tracker"
+import { buildStateScopeKeyFromRegion } from "@/platform/integrations/geo/state-scopes"
 import { getCurrentIndiaPeriods, getIndiaPeriod, type MissionCadence } from "@/platform/time/india-periods"
-import type {
-  LeaderboardBoardView,
-  LeaderboardEntryView
-} from "@/modules/leaderboards/types"
-
-type LeaderboardEligibleUser = {
-  _id: Types.ObjectId
-  displayName: string
-  username: string
-  region?: {
-    state?: string
-    city?: string
-  }
-}
+import type { LeaderboardBoardView, LeaderboardEntryView } from "@/modules/leaderboards/types"
 
 type ListLeaderboardOptions = {
   period?: "daily" | "weekly"
-  scopeType?: "state" | "city"
-  scopeKey?: string
+  boardType?: "individual" | "state"
 }
 
-function slugifyScope(value: string) {
-  return value
-    .toLowerCase()
-    .replace(/[^\w\s-]/g, " ")
-    .trim()
-    .replace(/\s+/g, "-")
+type PointEventInput = {
+  boardType: "individual" | "state"
+  cadence: MissionCadence
+  periodAt: Date
+  occurredAt: Date
+  competitorType: "user" | "state"
+  competitorKey: string
+  displayName: string
+  points: number
+  sourceType: "verified_stream" | "mission_completion" | "admin_adjustment"
+  sourceId: string
+  dedupeKey: string
+  userId?: Types.ObjectId
+  stateKey?: string
 }
 
-export function buildStateScopeKey(state: string) {
-  return `state:${slugifyScope(state)}`
+type LeaderboardEntryDoc = {
+  _id: Types.ObjectId
+  boardId: Types.ObjectId
+  competitorType: "user" | "state"
+  competitorKey: string
+  userId?: Types.ObjectId
+  stateKey?: string
+  displayName: string
+  score: number
+  rank: number
+  previousRank?: number | null
+  lastQualifiedAt?: Date
 }
 
-export function buildCityScopeKey(state: string, city: string) {
-  return `city:${slugifyScope(state)}:${slugifyScope(city)}`
-}
-
-function buildBoardHeadline(scopeType: "state" | "city", period: "daily" | "weekly", scopeLabel: string) {
-  if (scopeType === "city") {
+function buildBoardHeadline(boardType: "individual" | "state", period: "daily" | "weekly") {
+  if (boardType === "individual") {
     return period === "daily"
-      ? `${scopeLabel} fans climbing the daily mission race.`
-      : `${scopeLabel} crews stacking points across the full week.`
+      ? "Daily individual rankings from verified BTS streams and mission rewards."
+      : "Weekly individual rankings built from verified streams and mission completions."
   }
 
   return period === "daily"
-    ? `${scopeLabel} is moving on today’s state board.`
-    : `${scopeLabel} is being shaped by steady weekly completions.`
+    ? "Daily state standings powered by each state’s verified BTS activity."
+    : "Weekly state standings powered by verified streams and shared state wins."
 }
 
-async function ensureLeaderboardBoard(
-  scopeType: "state" | "city",
-  scopeKey: string,
-  scopeLabel: string,
-  cadence: MissionCadence
-) {
+async function ensureLeaderboardBoard(boardType: "individual" | "state", cadence: MissionCadence) {
   const period = getIndiaPeriod(cadence)
+  return ensureLeaderboardBoardForPeriod(boardType, period)
+}
+
+async function ensureLeaderboardBoardForPeriod(
+  boardType: "individual" | "state",
+  period: ReturnType<typeof getIndiaPeriod>
+) {
+  const scopeKey = `v2:${boardType}`
+  const scopeLabel = boardType === "individual" ? "All Users" : "All States"
 
   return LeaderboardBoardModel.findOneAndUpdate(
     {
-      scopeType,
-      scopeKey,
+      schemaVersion: 2,
+      boardType,
       periodKey: period.periodKey
     },
     {
       $set: {
-        scopeType,
+        schemaVersion: 2,
+        boardType,
+        scopeType: boardType,
         scopeKey,
         scopeLabel,
-        period: cadence,
+        period: period.cadence,
         periodKey: period.periodKey,
         startsAt: period.startsAt,
         endsAt: period.endsAt
@@ -92,28 +101,115 @@ async function ensureLeaderboardBoard(
   )
 }
 
-async function ensureLeaderboardsForUser(user: LeaderboardEligibleUser) {
-  const state = user.region?.state?.trim()
-  const city = user.region?.city?.trim()
-
-  if (!state || !city) {
-    return []
-  }
-
-  return Promise.all([
-    ensureLeaderboardBoard("city", buildCityScopeKey(state, city), city, "daily"),
-    ensureLeaderboardBoard("city", buildCityScopeKey(state, city), city, "weekly"),
-    ensureLeaderboardBoard("state", buildStateScopeKey(state), state, "daily"),
-    ensureLeaderboardBoard("state", buildStateScopeKey(state), state, "weekly")
+async function ensureCurrentLeaderboardBoards() {
+  const boards = await Promise.all([
+    ensureLeaderboardBoard("individual", "daily"),
+    ensureLeaderboardBoard("individual", "weekly"),
+    ensureLeaderboardBoard("state", "daily"),
+    ensureLeaderboardBoard("state", "weekly")
   ])
+
+  return new Map(
+    boards.map((board) => [`${board.period}:${board.boardType}:${board.periodKey}`, board] as const)
+  )
 }
 
-async function buildEntryViewsFromSnapshot(boardId: Types.ObjectId) {
-  const snapshot = (await LeaderboardRankSnapshotModel.findOne({ boardId })
-    .sort({ generatedAt: -1 })
-    .lean()) as { topEntries?: LeaderboardEntryView[] } | null
+async function ensureLeaderboardBoardsForEvents(events: PointEventInput[]) {
+  const uniquePeriods = new Map<string, ReturnType<typeof getIndiaPeriod>>()
 
-  return (snapshot?.topEntries ?? []) as LeaderboardEntryView[]
+  for (const event of events) {
+    const period = getIndiaPeriod(event.cadence, event.periodAt)
+    uniquePeriods.set(`${event.boardType}:${period.periodKey}`, period)
+  }
+
+  const boards = await Promise.all(
+    Array.from(uniquePeriods.entries()).map(([key, period]) => {
+      const [boardType] = key.split(":")
+      return ensureLeaderboardBoardForPeriod(boardType as "individual" | "state", period)
+    })
+  )
+
+  return new Map(
+    boards.map((board) => [`${board.period}:${board.boardType}:${board.periodKey}`, board] as const)
+  )
+}
+
+export async function recordLeaderboardPointEvents(events: PointEventInput[]) {
+  await connectToDatabase()
+
+  const filteredEvents = events.filter(
+    (event) => event.points > 0 && event.competitorKey.trim().length > 0 && event.displayName.trim().length > 0
+  )
+
+  if (filteredEvents.length === 0) {
+    return { inserted: 0 }
+  }
+
+  const boardMap = await ensureLeaderboardBoardsForEvents(filteredEvents)
+  let inserted = 0
+
+  for (const event of filteredEvents) {
+    const period = getIndiaPeriod(event.cadence, event.periodAt)
+    const board = boardMap.get(`${event.cadence}:${event.boardType}:${period.periodKey}`)
+
+    if (!board) {
+      continue
+    }
+
+    const result = await LeaderboardPointEventModel.updateOne(
+      { dedupeKey: event.dedupeKey },
+      {
+        $setOnInsert: {
+          boardId: board._id,
+          boardType: event.boardType,
+          period: event.cadence,
+          periodKey: board.periodKey,
+          competitorType: event.competitorType,
+          competitorKey: event.competitorKey,
+          userId: event.userId,
+          stateKey: event.stateKey,
+          displayName: event.displayName,
+          points: event.points,
+          occurredAt: event.occurredAt,
+          sourceType: event.sourceType,
+          sourceId: event.sourceId,
+          dedupeKey: event.dedupeKey
+        }
+      },
+      {
+        upsert: true
+      }
+    )
+
+    if (result.upsertedCount > 0) {
+      inserted += 1
+      await LeaderboardBoardModel.updateOne({ _id: board._id }, { $set: { isDirty: true } })
+    }
+  }
+
+  return { inserted }
+}
+
+function toSnapshotEntry(entry: {
+  rank: number
+  competitorType: "user" | "state"
+  competitorKey: string
+  userId?: Types.ObjectId
+  stateKey?: string
+  displayName: string
+  score: number
+  previousRank?: number | null
+}): LeaderboardEntryView {
+  return {
+    rank: entry.rank,
+    competitorType: entry.competitorType,
+    competitorKey: entry.competitorKey,
+    userId: entry.userId ? String(entry.userId) : undefined,
+    stateKey: entry.stateKey,
+    displayName: entry.displayName,
+    score: entry.score,
+    previousRank: entry.previousRank ?? null
+  }
 }
 
 export async function materializeLeaderboards(options: {
@@ -122,9 +218,13 @@ export async function materializeLeaderboards(options: {
 } = {}) {
   await connectToDatabase()
 
-  const filter: Record<string, unknown> = options.boardIds?.length
-    ? { _id: { $in: options.boardIds } }
-    : { isDirty: true }
+  const filter: Record<string, unknown> = { schemaVersion: 2 }
+
+  if (options.boardIds?.length) {
+    filter._id = { $in: options.boardIds }
+  } else {
+    filter.isDirty = true
+  }
 
   if (options.periodKey) {
     filter.periodKey = options.periodKey
@@ -133,49 +233,104 @@ export async function materializeLeaderboards(options: {
   const boards = await LeaderboardBoardModel.find(filter).lean()
 
   for (const board of boards) {
-    const scores = await LeaderboardScoreModel.find({ boardId: board._id })
-      .sort({ score: -1, lastQualifiedAt: 1, displayName: 1, _id: 1 })
+    const previousEntries = (await LeaderboardEntryModel.find({ boardId: board._id }).lean()) as unknown as LeaderboardEntryDoc[]
+    const previousRankMap = new Map(
+      previousEntries.map((entry) => [entry.competitorKey, entry.rank ?? null] as const)
+    )
+    const pointEvents = await LeaderboardPointEventModel.find({ boardId: board._id })
+      .sort({ occurredAt: 1, createdAt: 1, _id: 1 })
       .lean()
 
-    if (scores.length > 0) {
-      await Promise.all(
-        scores.map((score, index) =>
-          LeaderboardScoreModel.updateOne(
-            { _id: score._id },
-            {
-              $set: {
-                previousRank: score.rank ?? null,
-                rank: index + 1
-              }
-            }
-          )
-        )
+    const aggregateMap = new Map<
+      string,
+      {
+        competitorType: "user" | "state"
+        competitorKey: string
+        userId?: Types.ObjectId
+        stateKey?: string
+        displayName: string
+        score: number
+        lastQualifiedAt?: Date
+      }
+    >()
+
+    for (const event of pointEvents) {
+      const eventOccurredAt = event.occurredAt ?? event.createdAt
+      const current = aggregateMap.get(event.competitorKey)
+
+      if (current) {
+        current.score += event.points
+        current.displayName = event.displayName
+        current.lastQualifiedAt =
+          current.lastQualifiedAt && current.lastQualifiedAt > eventOccurredAt
+            ? current.lastQualifiedAt
+            : eventOccurredAt
+        current.userId = event.userId ?? current.userId
+        current.stateKey = event.stateKey ?? current.stateKey
+      } else {
+        aggregateMap.set(event.competitorKey, {
+          competitorType: event.competitorType as "user" | "state",
+          competitorKey: event.competitorKey,
+          userId: event.userId as Types.ObjectId | undefined,
+          stateKey: event.stateKey,
+          displayName: event.displayName,
+          score: event.points,
+          lastQualifiedAt: eventOccurredAt
+        })
+      }
+    }
+
+    const rankedEntries = Array.from(aggregateMap.values())
+      .sort((left, right) => {
+        if (right.score !== left.score) {
+          return right.score - left.score
+        }
+
+        const leftTime = left.lastQualifiedAt?.getTime() ?? 0
+        const rightTime = right.lastQualifiedAt?.getTime() ?? 0
+
+        if (leftTime !== rightTime) {
+          return leftTime - rightTime
+        }
+
+        return left.displayName.localeCompare(right.displayName)
+      })
+      .map((entry, index) => ({
+        ...entry,
+        rank: index + 1,
+        previousRank: previousRankMap.get(entry.competitorKey) ?? null
+      }))
+
+    await LeaderboardEntryModel.deleteMany({ boardId: board._id })
+
+    if (rankedEntries.length > 0) {
+      await LeaderboardEntryModel.insertMany(
+        rankedEntries.map((entry) => ({
+          boardId: board._id,
+          competitorType: entry.competitorType,
+          competitorKey: entry.competitorKey,
+          userId: entry.userId,
+          stateKey: entry.stateKey,
+          displayName: entry.displayName,
+          score: entry.score,
+          rank: entry.rank,
+          previousRank: entry.previousRank,
+          lastQualifiedAt: entry.lastQualifiedAt
+        }))
       )
     }
 
-    const refreshedScores = await LeaderboardScoreModel.find({ boardId: board._id })
-      .sort({ rank: 1, score: -1, lastQualifiedAt: 1, _id: 1 })
-      .lean()
-
-    const topEntries: LeaderboardEntryView[] = refreshedScores.slice(0, 10).map((score) => ({
-      rank: score.rank ?? 0,
-      userId: String(score.userId),
-      displayName: score.displayName,
-      score: score.score,
-      state: score.state,
-      city: score.city,
-      streakDays: score.streakDays ?? 0,
-      previousRank: score.previousRank ?? null
-    }))
-
     await LeaderboardRankSnapshotModel.create({
       boardId: board._id,
-      topEntries,
+      topEntries: rankedEntries.slice(0, 10).map(toSnapshotEntry),
       generatedAt: new Date(),
-      totalParticipants: refreshedScores.length
+      totalParticipants: rankedEntries.length
     })
 
-    await LeaderboardBoardModel.updateOne({ _id: board._id }, { $set: { isDirty: false } })
+    await LeaderboardBoardModel.updateOne(
+      { _id: board._id },
+      { $set: { isDirty: false, lastMaterializedAt: new Date() } }
+    )
   }
 
   return {
@@ -183,86 +338,37 @@ export async function materializeLeaderboards(options: {
   }
 }
 
-export async function applyMissionRewardToLeaderboards(input: {
-  user: LeaderboardEligibleUser
-  cadence: MissionCadence
-  points: number
-  streakDays: number
-  qualifiedAt?: Date
-}) {
-  await connectToDatabase()
+async function buildEntryViewsFromSnapshot(boardId: Types.ObjectId) {
+  const snapshot = (await LeaderboardRankSnapshotModel.findOne({ boardId })
+    .sort({ generatedAt: -1 })
+    .lean()) as { topEntries?: LeaderboardEntryView[] } | null
 
-  if (!input.user.region?.state || !input.user.region?.city || input.points <= 0) {
-    return []
-  }
-
-  const boards = await ensureLeaderboardsForUser(input.user)
-  const currentPeriod = getIndiaPeriod(input.cadence)
-  const matchingBoards = boards.filter((board) => board.periodKey === currentPeriod.periodKey)
-
-  const qualifiedAt = input.qualifiedAt ?? new Date()
-
-  await Promise.all(
-    matchingBoards.map((board) =>
-      Promise.all([
-        LeaderboardScoreModel.findOneAndUpdate(
-          {
-            boardId: board._id,
-            userId: input.user._id
-          },
-          {
-            $inc: { score: input.points },
-            $set: {
-              displayName: input.user.displayName,
-              username: input.user.username,
-              state: input.user.region?.state ?? "",
-              city: input.user.region?.city ?? "",
-              streakDays: input.streakDays,
-              lastQualifiedAt: qualifiedAt
-            }
-          },
-          {
-            upsert: true,
-            new: true,
-            setDefaultsOnInsert: true
-          }
-        ),
-        LeaderboardBoardModel.updateOne({ _id: board._id }, { $set: { isDirty: true } })
-      ])
-    )
-  )
-
-  return matchingBoards.map((board) => board._id as Types.ObjectId)
+  return snapshot?.topEntries ?? []
 }
 
 export async function listLeaderboards(
   options: ListLeaderboardOptions = {}
 ): Promise<LeaderboardBoardView[]> {
   await connectToDatabase()
+  await ensureCurrentLeaderboardBoards()
 
   const user = await getCurrentUserRecord()
-  await ensureLeaderboardsForUser(user as unknown as LeaderboardEligibleUser)
-
   const periods = getCurrentIndiaPeriods()
   const allowedPeriodKeys = options.period
     ? [periods[options.period].periodKey]
     : [periods.daily.periodKey, periods.weekly.periodKey]
 
   const filter: Record<string, unknown> = {
-    scopeType: { $in: ["city", "state"] },
+    schemaVersion: 2,
     periodKey: { $in: allowedPeriodKeys }
   }
 
-  if (options.scopeType) {
-    filter.scopeType = options.scopeType
-  }
-
-  if (options.scopeKey) {
-    filter.scopeKey = options.scopeKey
+  if (options.boardType) {
+    filter.boardType = options.boardType
   }
 
   const boards = await LeaderboardBoardModel.find(filter)
-    .sort({ scopeType: 1, period: 1, scopeLabel: 1 })
+    .sort({ period: 1, boardType: 1 })
     .lean()
 
   const dirtyBoardIds = boards.filter((board) => board.isDirty).map((board) => board._id as Types.ObjectId)
@@ -271,73 +377,65 @@ export async function listLeaderboards(
     await materializeLeaderboards({ boardIds: dirtyBoardIds })
   }
 
-  const userScores = await LeaderboardScoreModel.find({
-    boardId: { $in: boards.map((board) => board._id) },
-    userId: user._id
-  }).lean()
+  const refreshedBoards = await LeaderboardBoardModel.find(filter)
+    .sort({ period: 1, boardType: 1 })
+    .lean()
 
-  const userScoreMap = new Map(userScores.map((score) => [String(score.boardId), score]))
-
-  const sortedBoards = [...boards].sort((left, right) => {
-    const scopeOrder = { city: 0, state: 1 }
-    const periodOrder = { daily: 0, weekly: 1 }
-
-    const scopeDelta =
-      scopeOrder[left.scopeType as keyof typeof scopeOrder] -
-      scopeOrder[right.scopeType as keyof typeof scopeOrder]
-
-    if (scopeDelta !== 0) {
-      return scopeDelta
-    }
-
-    const periodDelta =
-      periodOrder[left.period as keyof typeof periodOrder] -
-      periodOrder[right.period as keyof typeof periodOrder]
-
-    if (periodDelta !== 0) {
-      return periodDelta
-    }
-
-    return left.scopeLabel.localeCompare(right.scopeLabel)
-  })
+  const currentStateKey = buildStateScopeKeyFromRegion(user.region)
 
   return Promise.all(
-    sortedBoards.map(async (board) => {
-      const entries = await buildEntryViewsFromSnapshot(board._id as Types.ObjectId)
-      const currentUserScore = userScoreMap.get(String(board._id))
+    refreshedBoards.map(async (board) => {
+      const [entries, currentUserEntryDoc, currentStateEntryDoc] = await Promise.all([
+        buildEntryViewsFromSnapshot(board._id as Types.ObjectId),
+        board.boardType === "individual" && user._id
+          ? (LeaderboardEntryModel.findOne({ boardId: board._id, userId: user._id }).lean() as unknown as Promise<LeaderboardEntryDoc | null>)
+          : null,
+        board.boardType === "state" && currentStateKey
+          ? (LeaderboardEntryModel.findOne({ boardId: board._id, competitorKey: currentStateKey }).lean() as unknown as Promise<LeaderboardEntryDoc | null>)
+          : null
+      ])
 
       return {
         boardId: String(board._id),
-        scopeType: board.scopeType as "state" | "city",
-        scopeKey: board.scopeKey,
-        scopeLabel: board.scopeLabel,
+        boardType: board.boardType as "individual" | "state",
         period: board.period as "daily" | "weekly",
         periodKey: board.periodKey,
         startsAt: board.startsAt.toISOString(),
         endsAt: board.endsAt.toISOString(),
         headline: buildBoardHeadline(
-          board.scopeType as "state" | "city",
-          board.period as "daily" | "weekly",
-          board.scopeLabel
+          board.boardType as "individual" | "state",
+          board.period as "daily" | "weekly"
         ),
         entries: entries.map((entry) => ({
           ...entry,
-          isCurrentUser: entry.userId === String(user._id)
+          isCurrentUser:
+            entry.competitorType === "user" && currentUserEntryDoc
+              ? entry.competitorKey === currentUserEntryDoc.competitorKey
+              : false
         })),
-        currentUserEntry: currentUserScore
-          ? {
-              rank: currentUserScore.rank ?? 0,
-              userId: String(currentUserScore.userId),
-              displayName: currentUserScore.displayName,
-              score: currentUserScore.score,
-              state: currentUserScore.state,
-              city: currentUserScore.city,
-              streakDays: currentUserScore.streakDays ?? 0,
-              previousRank: currentUserScore.previousRank ?? null,
-              isCurrentUser: true
-            }
-          : null
+        currentUserEntry: currentUserEntryDoc ? toSnapshotEntry(currentUserEntryDoc) : null,
+        currentStateEntry: currentStateEntryDoc ? toSnapshotEntry(currentStateEntryDoc) : null
       } satisfies LeaderboardBoardView
     })
   )
+}
+
+export async function getLeaderboardStatusSummary() {
+  await connectToDatabase()
+
+  const [lastTrackerSyncDoc, lastMaterializedBoard] = await Promise.all([
+    (TrackerConnectionModel.findOne({ provider: "lastfm", lastSyncAt: { $ne: null } })
+      .sort({ lastSyncAt: -1 })
+      .select({ lastSyncAt: 1 })
+      .lean() as unknown as Promise<{ lastSyncAt?: Date } | null>),
+    (LeaderboardBoardModel.findOne({ schemaVersion: 2, lastMaterializedAt: { $ne: null } })
+      .sort({ lastMaterializedAt: -1 })
+      .select({ lastMaterializedAt: 1 })
+      .lean() as unknown as Promise<{ lastMaterializedAt?: Date } | null>)
+  ])
+
+  return {
+    lastTrackerSyncAt: lastTrackerSyncDoc?.lastSyncAt?.toISOString(),
+    lastLeaderboardMaterializedAt: lastMaterializedBoard?.lastMaterializedAt?.toISOString()
+  }
 }

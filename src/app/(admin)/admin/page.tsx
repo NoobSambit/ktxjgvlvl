@@ -8,6 +8,18 @@ import { getMissionAdminState } from "@/modules/missions/service"
 
 export const dynamic = "force-dynamic"
 
+function formatDateTime(value?: string) {
+  if (!value) {
+    return "Pending"
+  }
+
+  return new Intl.DateTimeFormat("en-IN", {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone: "Asia/Kolkata"
+  }).format(new Date(value))
+}
+
 export default async function AdminPage() {
   const [overview, charts, missionAdminState] = await Promise.all([
     getAdminOverview(),
@@ -20,8 +32,10 @@ export default async function AdminPage() {
       <PageHero
         eyebrow="Admin"
         title="Control Room"
-        description="Manage content, missions, and platform operations. Keep campaigns organized and running smoothly."
+        description="Plan the next mission reset, sync the BTS catalog, and keep platform jobs healthy without touching today’s live missions."
       />
+
+      <MissionAdminConsole initialState={missionAdminState} />
 
       <section className="grid gap-4 lg:grid-cols-2">
         <Card className="bg-gradient-to-br from-[hsl(265,60%,55%)]/5 to-[hsl(30,100%,50%)]/5 border-[hsl(265,60%,55%)]/10">
@@ -106,15 +120,33 @@ export default async function AdminPage() {
             <div className="flex items-center justify-between p-3 rounded-xl bg-white/60">
               <div className="flex items-center gap-3">
                 <RefreshCw className="w-4 h-4 text-[hsl(265,60%,55%)]" />
-                <span className="text-sm font-medium">Last Sync</span>
+                <span className="text-sm font-medium">Location Registry</span>
               </div>
-              <span className="text-sm text-muted-foreground">Active</span>
+              <span className="text-sm text-muted-foreground">
+                {overview.locationRegistry.stateCount} states · {overview.locationRegistry.placeCount} places
+              </span>
+            </div>
+            <div className="flex items-center justify-between p-3 rounded-xl bg-white/60">
+              <div className="flex items-center gap-3">
+                <RefreshCw className="w-4 h-4 text-[hsl(30,100%,50%)]" />
+                <span className="text-sm font-medium">Last Location Import</span>
+              </div>
+              <span className="text-sm text-muted-foreground">
+                {formatDateTime(overview.locationRegistry.lastImportedAt)}
+              </span>
+            </div>
+            <div className="flex items-center justify-between p-3 rounded-xl bg-white/60">
+              <div className="flex items-center gap-3">
+                <RefreshCw className="w-4 h-4 text-[hsl(170,60%,40%)]" />
+                <span className="text-sm font-medium">Last Map Materialization</span>
+              </div>
+              <span className="text-sm text-muted-foreground">
+                {formatDateTime(overview.locationActivity.lastMaterializedAt)}
+              </span>
             </div>
           </CardContent>
         </Card>
       </section>
-
-      <MissionAdminConsole initialState={missionAdminState} />
     </div>
   )
 }

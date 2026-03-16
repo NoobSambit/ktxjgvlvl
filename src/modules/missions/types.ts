@@ -1,25 +1,19 @@
 import type { CatalogOption } from "@/modules/catalog/service"
-import type { MissionSlotKey, MissionTargetKind } from "@/modules/missions/config"
+import type {
+  MissionCadence,
+  MissionCellKey,
+  MissionKind,
+  MissionMechanicValueMap,
+  MissionMechanicType,
+  MissionTargetKind
+} from "@/modules/missions/config"
 
-export type MissionCard = {
-  id: string
-  slotKey: MissionSlotKey
+export type MissionTargetTrackView = {
+  key: string
   title: string
-  description: string
-  cadence: "daily" | "weekly"
-  startsAt: string
-  endsAt: string
-  periodKey: string
-  progress: number
-  goal: number
-  rewardPoints: number
-  scope: string
-  rewardLabel: string
-  focus: string
-  selectionSource: "admin" | "random"
+  artistName: string
+  spotifyUrl?: string
   isCompleted: boolean
-  rewardAwarded: boolean
-  targets: MissionTargetView[]
 }
 
 export type MissionTargetView = {
@@ -27,44 +21,107 @@ export type MissionTargetView = {
   kind: MissionTargetKind
   title: string
   artistName: string
-  targetCount: number
-  progress: number
+  imageUrl?: string
+  spotifyUrl?: string
+  targetCount?: number
+  progress?: number
   trackCount?: number
+  completedTrackCount?: number
+  tracks?: MissionTargetTrackView[]
+}
+
+export type MissionCompletionState = "locked" | "in_progress" | "completed"
+export type MissionProgressScopeType = "india" | "user" | "state"
+
+export type MissionCard = {
+  id: string
+  missionCellKey: MissionCellKey
+  missionKind: MissionKind
+  mechanicType: MissionMechanicType
+  cadence: MissionCadence
+  title: string
+  description: string
+  startsAt: string
+  endsAt: string
+  periodKey: string
+  goalUnits: number
+  rewardPoints: number
+  rewardLabel: string
+  selectionMode: "admin" | "random"
+  progressScopeType: MissionProgressScopeType
+  aggregateProgress: number
+  userContribution: number
+  contributorCount?: number
+  completionState: MissionCompletionState
+  focus: string
+  scopeLabel: string
+  targets: MissionTargetView[]
 }
 
 export type MissionPageState = {
-  missions: MissionCard[]
+  daily: MissionCard[]
+  weekly: MissionCard[]
   isAuthenticated: boolean
   lastfmConnection: {
     username: string
     verificationStatus: "pending" | "verified" | "failed"
+    lastSuccessfulSyncAt?: string
   } | null
   regionConfirmed: boolean
-  city?: string
   state?: string
+  streamPointValue: number
+  verificationStatus: "ready" | "blocked"
   verificationBlockedReason?: string
   resetTimezone: string
 }
 
-export type AdminMissionSlotView = {
-  slotKey: MissionSlotKey
-  cadence: "daily" | "weekly"
+export type AdminMissionOverrideView = {
+  mechanicType: MissionMechanicType
+  targetKeys: string[]
+  goalUnits: number
+  rewardPoints: number
+}
+
+export type AdminMissionPlanView = {
+  periodKey: string
+  selectionMode: "admin" | "random"
+  mechanicType: MissionMechanicType
+  goalUnits: number
+  rewardPoints: number
+  rewardLabel: string
+  focus: string
+  targets: CatalogOption[]
+}
+
+export type AdminMissionCellView = {
+  missionCellKey: MissionCellKey
+  cadence: MissionCadence
+  missionKind: MissionKind
   label: string
   description: string
-  targetKind: MissionTargetKind
-  minSelections: number
-  maxSelections: number
   defaultRewardPoints: number
-  options: CatalogOption[]
-  currentMission: MissionCard | null
-  currentOverride: {
-    itemKeys: string[]
-    rewardPoints?: number
-  } | null
+  defaultRewardPointsByMechanic: MissionMechanicValueMap<number>
+  defaultMechanicType: MissionMechanicType
+  defaultGoalUnitsByMechanic: MissionMechanicValueMap<number>
+  trackOptions: CatalogOption[]
+  albumOptions: CatalogOption[]
+  liveMission: MissionCard | null
+  nextPeriodKey: string
+  nextMission: AdminMissionPlanView | null
+  nextOverride: AdminMissionOverrideView | null
+  liveAggregateProgress?: number
+  contributorCount?: number
+  liveStateBreakdown?: Array<{
+    stateKey: string
+    stateLabel: string
+    progressUnits: number
+    goalUnits: number
+    completedAt?: string
+  }>
 }
 
 export type MissionAdminState = {
-  slots: AdminMissionSlotView[]
+  cells: AdminMissionCellView[]
   catalogSummary: {
     trackCount: number
     albumCount: number
@@ -73,4 +130,12 @@ export type MissionAdminState = {
     daily: string
     weekly: string
   }
+  nextPeriodKeys: {
+    daily: string
+    weekly: string
+  }
+  streamPointValue: number
+  lastTrackerSyncAt?: string
+  lastMissionGenerationAt?: string
+  lastLeaderboardMaterializedAt?: string
 }

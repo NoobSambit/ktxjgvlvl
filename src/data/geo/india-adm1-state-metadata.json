@@ -1,0 +1,290 @@
+[
+  {
+    "stateKey": "andaman-and-nicobar-islands",
+    "stateLabel": "Andaman and Nicobar Islands",
+    "stateCode": "IN-AN",
+    "mapFeatureId": "1811400B21325138943523",
+    "centroidLat": 11.185958,
+    "centroidLng": 92.963337
+  },
+  {
+    "stateKey": "andhra-pradesh",
+    "stateLabel": "Andhra Pradesh",
+    "stateCode": "IN-AP",
+    "mapFeatureId": "1811400B84418948762846",
+    "centroidLat": 15.752583,
+    "centroidLng": 79.941961
+  },
+  {
+    "stateKey": "arunachal-pradesh",
+    "stateLabel": "Arunachal Pradesh",
+    "stateCode": "IN-AR",
+    "mapFeatureId": "1811400B16134215155042",
+    "centroidLat": 28.039905,
+    "centroidLng": 94.669986
+  },
+  {
+    "stateKey": "assam",
+    "stateLabel": "Assam",
+    "stateCode": "IN-AS",
+    "mapFeatureId": "1811400B78322693766699",
+    "centroidLat": 26.357527,
+    "centroidLng": 92.817387
+  },
+  {
+    "stateKey": "bihar",
+    "stateLabel": "Bihar",
+    "stateCode": "IN-BR",
+    "mapFeatureId": "1811400B26595099860318",
+    "centroidLat": 25.680044,
+    "centroidLng": 85.609432
+  },
+  {
+    "stateKey": "chandigarh",
+    "stateLabel": "Chandigarh",
+    "stateCode": "IN-CH",
+    "mapFeatureId": "1811400B77692474244036",
+    "centroidLat": 30.729345,
+    "centroidLng": 76.780508
+  },
+  {
+    "stateKey": "chhattisgarh",
+    "stateLabel": "Chhattisgarh",
+    "stateCode": "IN-CT",
+    "mapFeatureId": "1811400B70654311394581",
+    "centroidLat": 21.252169,
+    "centroidLng": 82.027716
+  },
+  {
+    "stateKey": "dadra-and-nagar-haveli-and-daman-and-diu",
+    "stateLabel": "Dadra and Nagar Haveli and Daman and Diu",
+    "stateCode": "IN-DH",
+    "mapFeatureId": "1811400B51283975314925",
+    "centroidLat": 20.245672,
+    "centroidLng": 72.929336
+  },
+  {
+    "stateKey": "delhi",
+    "stateLabel": "Delhi",
+    "stateCode": "IN-DL",
+    "mapFeatureId": "1811400B23625213884851",
+    "centroidLat": 28.64333,
+    "centroidLng": 77.115518
+  },
+  {
+    "stateKey": "goa",
+    "stateLabel": "Goa",
+    "stateCode": "IN-GA",
+    "mapFeatureId": "1811400B6111924962807",
+    "centroidLat": 15.363591,
+    "centroidLng": 74.054126
+  },
+  {
+    "stateKey": "gujarat",
+    "stateLabel": "Gujarat",
+    "stateCode": "IN-GJ",
+    "mapFeatureId": "1811400B80305611676067",
+    "centroidLat": 22.697218,
+    "centroidLng": 71.577579
+  },
+  {
+    "stateKey": "haryana",
+    "stateLabel": "Haryana",
+    "stateCode": "IN-HR",
+    "mapFeatureId": "1811400B68407848780347",
+    "centroidLat": 29.195304,
+    "centroidLng": 76.341066
+  },
+  {
+    "stateKey": "himachal-pradesh",
+    "stateLabel": "Himachal Pradesh",
+    "stateCode": "IN-HP",
+    "mapFeatureId": "1811400B21086746745937",
+    "centroidLat": 31.924143,
+    "centroidLng": 77.247185
+  },
+  {
+    "stateKey": "jammu-and-kashmir",
+    "stateLabel": "Jammu and Kashmir",
+    "stateCode": "IN-JK",
+    "mapFeatureId": "1811400B42025667129192",
+    "centroidLat": 33.669927,
+    "centroidLng": 74.861341
+  },
+  {
+    "stateKey": "jharkhand",
+    "stateLabel": "Jharkhand",
+    "stateCode": "IN-JH",
+    "mapFeatureId": "1811400B52412412689061",
+    "centroidLat": 23.655649,
+    "centroidLng": 85.560399
+  },
+  {
+    "stateKey": "karnataka",
+    "stateLabel": "Karnataka",
+    "stateCode": "IN-KA",
+    "mapFeatureId": "1811400B56841107211215",
+    "centroidLat": 14.699661,
+    "centroidLng": 76.168658
+  },
+  {
+    "stateKey": "kerala",
+    "stateLabel": "Kerala",
+    "stateCode": "IN-KL",
+    "mapFeatureId": "1811400B45534780755480",
+    "centroidLat": 10.44709,
+    "centroidLng": 76.412047
+  },
+  {
+    "stateKey": "ladakh",
+    "stateLabel": "Ladakh",
+    "stateCode": "IN-LA",
+    "mapFeatureId": "1811400B23769854471902",
+    "centroidLat": 34.9444,
+    "centroidLng": 76.824554
+  },
+  {
+    "stateKey": "lakshadweep",
+    "stateLabel": "Lakshadweep",
+    "stateCode": "IN-LD",
+    "mapFeatureId": "1811400B55669546485086",
+    "centroidLat": 10.44672,
+    "centroidLng": 72.954042
+  },
+  {
+    "stateKey": "madhya-pradesh",
+    "stateLabel": "Madhya Pradesh",
+    "stateCode": "IN-MP",
+    "mapFeatureId": "1811400B75807316846587",
+    "centroidLat": 23.539231,
+    "centroidLng": 78.281996
+  },
+  {
+    "stateKey": "maharashtra",
+    "stateLabel": "Maharashtra",
+    "stateCode": "IN-MH",
+    "mapFeatureId": "1811400B15614733245507",
+    "centroidLat": 19.452006,
+    "centroidLng": 76.091314
+  },
+  {
+    "stateKey": "manipur",
+    "stateLabel": "Manipur",
+    "stateCode": "IN-MN",
+    "mapFeatureId": "1811400B97532436596698",
+    "centroidLat": 24.734076,
+    "centroidLng": 93.877592
+  },
+  {
+    "stateKey": "meghalaya",
+    "stateLabel": "Meghalaya",
+    "stateCode": "IN-ML",
+    "mapFeatureId": "1811400B28404458933503",
+    "centroidLat": 25.53718,
+    "centroidLng": 91.277719
+  },
+  {
+    "stateKey": "mizoram",
+    "stateLabel": "Mizoram",
+    "stateCode": "IN-MZ",
+    "mapFeatureId": "1811400B49281905528064",
+    "centroidLat": 23.305209,
+    "centroidLng": 92.83188
+  },
+  {
+    "stateKey": "nagaland",
+    "stateLabel": "Nagaland",
+    "stateCode": "IN-NL",
+    "mapFeatureId": "1811400B74762431478096",
+    "centroidLat": 26.062275,
+    "centroidLng": 94.46484
+  },
+  {
+    "stateKey": "odisha",
+    "stateLabel": "Odisha",
+    "stateCode": "IN-OR",
+    "mapFeatureId": "1811400B82358585030651",
+    "centroidLat": 20.512159,
+    "centroidLng": 84.41974
+  },
+  {
+    "stateKey": "puducherry",
+    "stateLabel": "Puducherry",
+    "stateCode": "IN-PY",
+    "mapFeatureId": "1811400B81659894240990",
+    "centroidLat": 11.905538,
+    "centroidLng": 79.842777
+  },
+  {
+    "stateKey": "punjab",
+    "stateLabel": "Punjab",
+    "stateCode": "IN-PB",
+    "mapFeatureId": "1811400B91946361694107",
+    "centroidLat": 30.84003,
+    "centroidLng": 75.415034
+  },
+  {
+    "stateKey": "rajasthan",
+    "stateLabel": "Rajasthan",
+    "stateCode": "IN-RJ",
+    "mapFeatureId": "1811400B37341166588993",
+    "centroidLat": 26.578536,
+    "centroidLng": 73.850985
+  },
+  {
+    "stateKey": "sikkim",
+    "stateLabel": "Sikkim",
+    "stateCode": "IN-SK",
+    "mapFeatureId": "1811400B15456792557830",
+    "centroidLat": 27.569407,
+    "centroidLng": 88.473136
+  },
+  {
+    "stateKey": "tamil-nadu",
+    "stateLabel": "Tamil Nadu",
+    "stateCode": "IN-TN",
+    "mapFeatureId": "1811400B21167269026319",
+    "centroidLat": 11.009645,
+    "centroidLng": 78.404938
+  },
+  {
+    "stateKey": "telangana",
+    "stateLabel": "Telangana",
+    "stateCode": "IN-TG",
+    "mapFeatureId": "1811400B25711494603400",
+    "centroidLat": 17.798057,
+    "centroidLng": 79.007087
+  },
+  {
+    "stateKey": "tripura",
+    "stateLabel": "Tripura",
+    "stateCode": "IN-TR",
+    "mapFeatureId": "1811400B57209440839078",
+    "centroidLat": 23.744349,
+    "centroidLng": 91.738439
+  },
+  {
+    "stateKey": "uttar-pradesh",
+    "stateLabel": "Uttar Pradesh",
+    "stateCode": "IN-UP",
+    "mapFeatureId": "1811400B11231190780494",
+    "centroidLat": 26.920063,
+    "centroidLng": 80.590701
+  },
+  {
+    "stateKey": "uttarakhand",
+    "stateLabel": "Uttarakhand",
+    "stateCode": "IN-UT",
+    "mapFeatureId": "1811400B3558497485804",
+    "centroidLat": 30.155221,
+    "centroidLng": 79.209549
+  },
+  {
+    "stateKey": "west-bengal",
+    "stateLabel": "West Bengal",
+    "stateCode": "IN-WB",
+    "mapFeatureId": "1811400B32673734874058",
+    "centroidLat": 23.793523,
+    "centroidLng": 87.97503
+  }
+]

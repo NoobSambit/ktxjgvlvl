@@ -8,19 +8,28 @@
     "start": "next start",
     "lint": "next lint",
     "type-check": "tsc --noEmit",
-    "import:armyverse-catalog": "node scripts/import-armyverse-catalog.mjs"
+    "import:armyverse-catalog": "node scripts/import-armyverse-catalog.mjs",
+    "normalize:india-topojson": "node scripts/normalize-india-topojson.mjs",
+    "build:india-render-geojson": "node scripts/build-india-render-geojson.mjs",
+    "import:india-locations": "node scripts/import-india-locations.mjs",
+    "backfill:user-location-keys": "node scripts/backfill-user-location-keys.mjs"
   },
   "dependencies": {
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "d3-geo": "^3.1.1",
+    "d3-scale": "^4.0.2",
     "framer-motion": "^11.13.1",
     "lucide-react": "^0.453.0",
     "mongoose": "^8.16.3",
     "next": "14.2.5",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "react-simple-maps": "^3.0.0",
     "tailwind-merge": "^2.6.0",
     "tailwindcss-animate": "^1.0.7",
+    "topojson-client": "^3.1.0",
+    "topojson-server": "^3.0.1",
     "zod": "^3.24.2"
   },
   "devDependencies": {

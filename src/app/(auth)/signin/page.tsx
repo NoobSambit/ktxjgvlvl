@@ -10,7 +10,7 @@ export default function SignInPage() {
         <PageHero
           eyebrow="Sign in"
           title="Welcome back, ARMY!"
-          description="Pick up where you left off — track your missions, check your city rank, and see the latest chart movements."
+          description="Pick up where you left off — track your missions, check your individual and state rank, and see the latest chart movements."
         />
         
         <div className="space-y-4">
@@ -22,7 +22,7 @@ export default function SignInPage() {
                 </div>
                 <div>
                   <CardTitle className="text-base">Track Your Progress</CardTitle>
-                  <p className="mt-1 text-sm text-muted-foreground">Follow your missions, refresh tracker progress, and monitor your city rank in real time.</p>
+                  <p className="mt-1 text-sm text-muted-foreground">Follow your missions, refresh tracker progress, and monitor your individual and state ranks in real time.</p>
                 </div>
               </div>
             </CardContent>

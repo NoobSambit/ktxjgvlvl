@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto"
 import { NextResponse } from "next/server"
 import { z } from "zod"
+import { buildSignupRegion } from "@/modules/locations/service"
 import { hashPassword } from "@/platform/auth/password"
 import { SESSION_COOKIE_NAME } from "@/platform/auth/session"
 import { UserModel } from "@/platform/db/models/user"
@@ -9,8 +10,8 @@ import { connectToDatabase } from "@/platform/db/mongoose"
 const signUpSchema = z.object({
   username: z.string().min(3).max(24),
   email: z.string().email().optional(),
-  state: z.string().min(2),
-  city: z.string().min(2),
+  stateKey: z.string().min(2),
+  cityKey: z.string().min(2).optional(),
   password: z.string().min(6)
 })
 
@@ -35,6 +36,11 @@ export async function POST(request: Request) {
 
     const sessionKey = randomBytes(24).toString("hex")
     const passwordHash = await hashPassword(body.password)
+    const region = await buildSignupRegion({
+      stateKey: body.stateKey,
+      cityKey: body.cityKey,
+      request
+    })
 
     const user = await UserModel.create({
       sessionKey,
@@ -43,13 +49,7 @@ export async function POST(request: Request) {
       email,
       status: "active",
       roles: ["user"],
-      region: {
-        country: "India",
-        state: body.state.trim(),
-        city: body.city.trim(),
-        confirmedAt: new Date(),
-        source: "user_confirmed"
-      },
+      region,
       authAccounts: [
         {
           provider: "credentials",

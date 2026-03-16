@@ -5,6 +5,9 @@ export type NormalizedStreamEvent = {
   providerUserKey: string
   providerEventKey: string
   playedAt: string
+  trackName: string
+  artistName: string
+  albumName?: string
   artistKey: string
   trackKey: string
   albumKey?: string

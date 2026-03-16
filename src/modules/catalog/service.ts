@@ -7,6 +7,7 @@ export type CatalogOption = {
   key: string
   label: string
   secondaryLabel: string
+  imageUrl?: string
 }
 
 export type CatalogSummary = {
@@ -119,13 +120,17 @@ export async function listTrackOptions(): Promise<CatalogOption[]> {
 
   const tracks = await CatalogTrackModel.find({ isBTSFamily: true })
     .sort({ artist: 1, name: 1 })
-    .select({ spotifyId: 1, name: 1, artist: 1, album: 1 })
+    .select({ spotifyId: 1, name: 1, artist: 1, album: 1, thumbnails: 1 })
     .lean()
 
   return tracks.map((track) => ({
     key: track.spotifyId,
     label: track.name,
-    secondaryLabel: `${track.artist} · ${track.album}`
+    secondaryLabel: `${track.artist} · ${track.album}`,
+    imageUrl:
+      track.thumbnails?.medium ??
+      track.thumbnails?.large ??
+      track.thumbnails?.small
   }))
 }
 
@@ -134,13 +139,14 @@ export async function listAlbumOptions(): Promise<CatalogOption[]> {
 
   const albums = await CatalogAlbumModel.find({ isBTSFamily: true })
     .sort({ artist: 1, releaseDate: 1, name: 1 })
-    .select({ spotifyId: 1, name: 1, artist: 1, trackCount: 1 })
+    .select({ spotifyId: 1, name: 1, artist: 1, trackCount: 1, coverImage: 1 })
     .lean()
 
   return albums.map((album) => ({
     key: album.spotifyId,
     label: album.name,
-    secondaryLabel: `${album.artist} · ${album.trackCount} tracks`
+    secondaryLabel: `${album.artist} · ${album.trackCount} tracks`,
+    imageUrl: album.coverImage
   }))
 }
 

@@ -27,8 +27,24 @@ const userSchema = new Schema(
     },
     region: {
       country: { type: String, default: "India" },
+      stateKey: { type: String, index: true },
       state: { type: String },
+      cityKey: { type: String, index: true },
       city: { type: String },
+      cityConfirmedAt: { type: Date },
+      citySource: {
+        type: String,
+        enum: ["user_selected", "admin_override"]
+      },
+      fallbackCityKey: { type: String, index: true },
+      fallbackCityLabel: { type: String },
+      fallbackStateKey: { type: String, index: true },
+      fallbackConfidence: {
+        type: String,
+        enum: ["low", "medium", "high"]
+      },
+      fallbackDetectedAt: { type: Date },
+      locationNeedsReview: { type: Boolean, default: false },
       confirmedAt: { type: Date },
       source: {
         type: String,

@@ -6,14 +6,12 @@ export const dynamic = "force-dynamic"
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
   const period = searchParams.get("period")
-  const scopeType = searchParams.get("scopeType")
-  const scopeKey = searchParams.get("scopeKey")
+  const boardType = searchParams.get("boardType")
 
   return NextResponse.json({
     leaderboards: await listLeaderboards({
       period: period === "daily" || period === "weekly" ? period : undefined,
-      scopeType: scopeType === "state" || scopeType === "city" ? scopeType : undefined,
-      scopeKey: scopeKey ?? undefined
+      boardType: boardType === "individual" || boardType === "state" ? boardType : undefined
     })
   })
 }
