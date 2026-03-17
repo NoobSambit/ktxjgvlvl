@@ -178,15 +178,15 @@ export function LocationSearchSelect({
   const shouldShowQueryHint = deferredQuery.trim().length < minQueryLength
 
   return (
-    <div className="space-y-2" ref={containerRef}>
+    <div className="relative space-y-2" ref={containerRef}>
       <div className="flex items-center justify-between gap-3">
-        <label className="text-sm font-medium" htmlFor={inputId}>
+        <label className="text-sm font-medium text-slate-900" htmlFor={inputId}>
           {label}
           {required ? <span className="ml-1 text-[hsl(25,90%,55%)]">*</span> : null}
         </label>
         {selectedOption && onClear ? (
           <button
-            className="text-xs font-medium text-muted-foreground transition hover:text-foreground"
+            className="text-xs font-medium text-slate-500 transition hover:text-slate-900"
             onClick={() => onClear()}
             type="button"
           >
@@ -199,7 +199,7 @@ export function LocationSearchSelect({
         aria-controls={listboxId}
         aria-expanded={isOpen}
         className={cn(
-          "flex min-h-11 w-full items-center justify-between gap-3 rounded-2xl border border-border/80 bg-white px-4 py-3 text-left text-sm text-foreground transition focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/10 disabled:cursor-not-allowed disabled:opacity-60",
+          "flex min-h-11 w-full items-center justify-between gap-3 rounded-2xl border border-border/80 bg-white px-4 py-3 text-left text-sm text-slate-900 transition focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/10 disabled:cursor-not-allowed disabled:opacity-60",
           isOpen ? "border-primary/50 ring-4 ring-primary/10" : "hover:border-primary/30"
         )}
         disabled={disabled}
@@ -218,16 +218,16 @@ export function LocationSearchSelect({
               ) : null}
             </>
           ) : (
-            <span className="text-muted-foreground">{placeholder}</span>
+            <span className="text-slate-400">{placeholder}</span>
           )}
         </div>
         <ChevronDown
           aria-hidden="true"
-          className={cn("h-4 w-4 shrink-0 text-muted-foreground transition", isOpen ? "rotate-180" : "")}
+          className={cn("h-4 w-4 shrink-0 text-slate-400 transition", isOpen ? "rotate-180" : "")}
         />
       </button>
 
-      {helperText ? <p className="text-xs text-muted-foreground">{helperText}</p> : null}
+      {helperText ? <p className="text-xs text-slate-500">{helperText}</p> : null}
 
       {isOpen ? (
         <>
@@ -238,12 +238,12 @@ export function LocationSearchSelect({
             type="button"
           />
 
-          <div className="fixed inset-x-0 bottom-0 z-40 rounded-t-[2rem] border border-white/10 bg-[hsl(265,25%,10%)] p-4 shadow-2xl sm:absolute sm:inset-auto sm:left-0 sm:right-0 sm:top-full sm:mt-2 sm:rounded-[1.5rem]">
+          <div className="fixed inset-x-0 bottom-0 z-40 rounded-t-[2rem] border border-white/10 bg-[hsl(265,25%,10%)] p-4 shadow-2xl sm:absolute sm:inset-auto sm:left-0 sm:right-0 sm:top-full sm:z-50 sm:mt-2 sm:rounded-[1.5rem]">
             <div className="mx-auto mb-4 h-1.5 w-14 rounded-full bg-white/10 sm:hidden" />
 
             <div className="space-y-3">
               <div className="relative">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                 <Input
                   autoComplete="off"
                   className="pl-9 pr-10"

@@ -43,9 +43,9 @@ export function SignInForm() {
   }
 
   return (
-    <form className="space-y-4" onSubmit={handleSubmit}>
+    <form className="space-y-4 text-slate-900" onSubmit={handleSubmit}>
       <div className="space-y-2">
-        <label className="text-sm font-medium" htmlFor="identity">
+        <label className="text-sm font-medium text-slate-900" htmlFor="identity">
           Username or email
         </label>
         <Input
@@ -56,7 +56,7 @@ export function SignInForm() {
         />
       </div>
       <div className="space-y-2">
-        <label className="text-sm font-medium" htmlFor="password">
+        <label className="text-sm font-medium text-slate-900" htmlFor="password">
           Password
         </label>
         <Input
@@ -71,9 +71,9 @@ export function SignInForm() {
         <Button disabled={isPending || identity.trim().length < 2 || password.length < 6} type="submit">
           Sign in
         </Button>
-        <p className="text-sm text-muted-foreground">Use the username or email you registered with.</p>
+        <p className="text-sm text-slate-600">Use the username or email you registered with.</p>
       </div>
-      {message ? <p className="text-sm font-medium text-foreground">{message}</p> : null}
+      {message ? <p className="text-sm font-medium text-slate-900">{message}</p> : null}
     </form>
   )
 }

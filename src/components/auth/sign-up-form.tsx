@@ -155,9 +155,9 @@ export function SignUpForm() {
   }
 
   return (
-    <form className="grid gap-4 md:grid-cols-2" onSubmit={handleSubmit}>
+    <form className="grid gap-4 text-slate-900 md:grid-cols-2" onSubmit={handleSubmit}>
       <div className="space-y-2">
-        <label className="text-sm font-medium" htmlFor="username">
+        <label className="text-sm font-medium text-slate-900" htmlFor="username">
           Username
         </label>
         <Input
@@ -169,7 +169,7 @@ export function SignUpForm() {
       </div>
 
       <div className="space-y-2">
-        <label className="text-sm font-medium" htmlFor="email">
+        <label className="text-sm font-medium text-slate-900" htmlFor="email">
           Email (optional)
         </label>
         <Input
@@ -182,14 +182,14 @@ export function SignUpForm() {
       </div>
 
       <div className="space-y-3 md:col-span-2">
-        <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-4">
+        <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4">
           <div className="flex items-start gap-3">
             <div className="mt-0.5 flex h-10 w-10 items-center justify-center rounded-2xl bg-[hsl(265,70%,65%)]/15 text-[hsl(265,70%,65%)]">
               <MapPin className="h-5 w-5" />
             </div>
             <div className="space-y-1">
-              <p className="text-sm font-semibold text-foreground">Set your India location</p>
-              <p className="text-sm text-muted-foreground">
+              <p className="text-sm font-semibold text-slate-900">Set your India location</p>
+              <p className="text-sm text-slate-600">
                 Your confirmed state is required for leaderboard scoring. City or town is optional and only improves
                 activity-map hotspots.
               </p>
@@ -241,10 +241,10 @@ export function SignUpForm() {
           onSelect={(option) => setCityOption(option)}
         />
 
-        <div className="flex flex-col gap-3 rounded-[1.5rem] border border-white/10 bg-black/10 p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-3 rounded-[1.5rem] border border-slate-200 bg-slate-100 p-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="space-y-1">
-            <p className="text-sm font-medium text-foreground">City is optional in this step.</p>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-sm font-medium text-slate-900">City is optional in this step.</p>
+            <p className="text-xs text-slate-600">
               If you skip it and we can safely match your IP suggestion to the same state, we&apos;ll save it as an
               unconfirmed hotspot hint only.
             </p>
@@ -264,7 +264,7 @@ export function SignUpForm() {
       </div>
 
       <div className="space-y-2 md:col-span-2">
-        <label className="text-sm font-medium" htmlFor="password">
+        <label className="text-sm font-medium text-slate-900" htmlFor="password">
           Password
         </label>
         <Input
@@ -283,12 +283,12 @@ export function SignUpForm() {
         >
           Create account
         </Button>
-        <p className="text-sm text-muted-foreground">
+        <p className="text-sm text-slate-600">
           Tracker setup comes next. State leaderboards start counting as soon as your account is ready.
         </p>
       </div>
 
-      {message ? <p className="text-sm font-medium text-foreground md:col-span-2">{message}</p> : null}
+      {message ? <p className="text-sm font-medium text-slate-900 md:col-span-2">{message}</p> : null}
     </form>
   )
 }

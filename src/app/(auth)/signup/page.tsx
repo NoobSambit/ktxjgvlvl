@@ -22,15 +22,15 @@ export default function SignUpPage() {
         
         <div className="grid gap-3 sm:grid-cols-2">
           {steps.map((step, index) => (
-            <Card key={step.title} className="bg-white/60 border-white/80 hover:border-[hsl(265,60%,55%)]/30 transition-colors">
+            <Card key={step.title} className="border-white/80 bg-white/60 transition-colors hover:border-[hsl(265,60%,55%)]/30">
               <CardContent className="p-4">
                 <div className="flex items-start gap-3">
                   <div className="flex-shrink-0 w-8 h-8 rounded-lg bg-gradient-to-br from-[hsl(265,60%,55%)]/10 to-[hsl(30,100%,50%)]/10 flex items-center justify-center">
                     <step.icon className="w-4 h-4 text-[hsl(265,60%,55%)]" />
                   </div>
                   <div>
-                    <p className="text-xs font-medium text-muted-foreground">{index + 1}. {step.title}</p>
-                    <p className="text-xs text-muted-foreground/70 mt-0.5">{step.desc}</p>
+                    <p className="text-xs font-medium text-slate-800">{index + 1}. {step.title}</p>
+                    <p className="mt-0.5 text-xs text-slate-600">{step.desc}</p>
                   </div>
                 </div>
               </CardContent>
@@ -44,8 +44,8 @@ export default function SignUpPage() {
           <div className="mx-auto w-14 h-14 rounded-2xl bg-gradient-to-br from-[hsl(265,60%,55%)] to-[hsl(30,100%,50%)] flex items-center justify-center mb-4">
             <Sparkles className="w-7 h-7 text-white" />
           </div>
-          <CardTitle className="text-2xl">Create your account</CardTitle>
-          <p className="text-sm text-muted-foreground mt-2">State is mandatory. City can wait.</p>
+          <CardTitle className="text-2xl text-slate-900">Create your account</CardTitle>
+          <p className="mt-2 text-sm text-slate-600">State is mandatory. City can wait.</p>
         </CardHeader>
         <CardContent>
           <SignUpForm />

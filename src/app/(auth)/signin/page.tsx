@@ -21,8 +21,8 @@ export default function SignInPage() {
                   <Music4 className="w-5 h-5 text-[hsl(265,60%,55%)]" />
                 </div>
                 <div>
-                  <CardTitle className="text-base">Track Your Progress</CardTitle>
-                  <p className="mt-1 text-sm text-muted-foreground">Follow your missions, refresh tracker progress, and monitor your individual and state ranks in real time.</p>
+                  <CardTitle className="text-base text-slate-900">Track Your Progress</CardTitle>
+                  <p className="mt-1 text-sm text-slate-600">Follow your missions, refresh tracker progress, and monitor your individual and state ranks in real time.</p>
                 </div>
               </div>
             </CardContent>
@@ -35,8 +35,8 @@ export default function SignInPage() {
                   <Users className="w-5 h-5 text-[hsl(30,100%,50%)]" />
                 </div>
                 <div>
-                  <CardTitle className="text-base">Join the Community</CardTitle>
-                  <p className="mt-1 text-sm text-muted-foreground">Connect with Indian ARMY, participate in campaigns, and make your streams count.</p>
+                  <CardTitle className="text-base text-slate-900">Join the Community</CardTitle>
+                  <p className="mt-1 text-sm text-slate-600">Connect with Indian ARMY, participate in campaigns, and make your streams count.</p>
                 </div>
               </div>
             </CardContent>
@@ -49,8 +49,8 @@ export default function SignInPage() {
           <div className="mx-auto w-14 h-14 rounded-2xl bg-gradient-to-br from-[hsl(265,60%,55%)] to-[hsl(30,100%,50%)] flex items-center justify-center mb-4">
             <Heart className="w-7 h-7 text-white fill-white" />
           </div>
-          <CardTitle className="text-2xl">Welcome back</CardTitle>
-          <p className="text-sm text-muted-foreground mt-2">Sign in to continue your ARMY journey</p>
+          <CardTitle className="text-2xl text-slate-900">Welcome back</CardTitle>
+          <p className="mt-2 text-sm text-slate-600">Sign in to continue your ARMY journey</p>
         </CardHeader>
         <CardContent>
           <SignInForm />
