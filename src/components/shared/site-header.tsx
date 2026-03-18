@@ -9,6 +9,7 @@ const links = [
   { href: "/missions", label: "Missions" },
   { href: "/leaderboards", label: "Leaderboards" },
   { href: "/charts", label: "Charts" },
+  { href: "/guide", label: "Guide" },
   { href: "/wiki", label: "Wiki" },
   { href: "/events", label: "Events" },
   { href: "/projects", label: "Projects" }
