@@ -5,9 +5,14 @@ import { createPortal } from "react-dom"
 import { AnimatePresence, motion } from "framer-motion"
 import { BarChart3, ChevronDown, ChevronLeft, ChevronRight, Globe2, PlayCircle, ShoppingBag, Sparkles, Tv, X } from "lucide-react"
 import { GuideModalCtaButton } from "@/components/guides/guide-modal-cta-button"
+import {
+  CORE_GUIDE_LIBRARY,
+  DEFAULT_CORE_GUIDE_ID,
+  type CoreGuideId
+} from "@/modules/guides/service"
 
 type CoreGuide = {
-  id: "mv" | "streaming" | "purchasing" | "charts"
+  id: CoreGuideId
   eyebrow: string
   title: string
   summary: string
@@ -26,14 +31,15 @@ type CoreGuide = {
   }>
 }
 
+const coreGuideMetaById = Object.fromEntries(
+  CORE_GUIDE_LIBRARY.map((guide) => [guide.id, guide])
+) as Record<CoreGuideId, (typeof CORE_GUIDE_LIBRARY)[number]>
+
 const CORE_GUIDES: CoreGuide[] = [
   {
-    id: "mv",
-    eyebrow: "All-platform rules",
-    title: "Music video streaming",
-    summary: "Use this before any MV push. It covers what counts, what kills views, and how first-day YouTube traffic works.",
+    ...coreGuideMetaById.mv,
+    eyebrow: coreGuideMetaById.mv.detail,
     icon: <Tv className="h-4 w-4" />,
-    highlights: ["Official uploads only", "US plays matter for Billboard", "Manual play beats playlist loops"],
     sections: [
       {
         title: "Why it matters",
@@ -140,12 +146,9 @@ const CORE_GUIDES: CoreGuide[] = [
     ]
   },
   {
-    id: "streaming",
-    eyebrow: "All-platform rules",
-    title: "Streaming",
-    summary: "This is the baseline rulebook for music streaming across platforms before you jump into Apple, Amazon, Spotify, or anything else.",
+    ...coreGuideMetaById.streaming,
+    eyebrow: coreGuideMetaById.streaming.detail,
     icon: <PlayCircle className="h-4 w-4" />,
-    highlights: ["Act like a human", "No VPN", "30+ seconds is the baseline"],
     sections: [
       {
         title: "Why it matters",
@@ -273,12 +276,9 @@ const CORE_GUIDES: CoreGuide[] = [
     ]
   },
   {
-    id: "purchasing",
-    eyebrow: "All-platform rules",
-    title: "Purchasing",
-    summary: "Use this for digital and physical buying rules so purchases count cleanly for charts and certifications.",
+    ...coreGuideMetaById.purchasing,
+    eyebrow: coreGuideMetaById.purchasing.detail,
     icon: <ShoppingBag className="h-4 w-4" />,
-    highlights: ["1 digital copy per customer", "4 physical copies per week", "Download digital purchases to a computer"],
     sections: [
       {
         title: "Why it matters",
@@ -391,12 +391,9 @@ const CORE_GUIDES: CoreGuide[] = [
     ]
   },
   {
-    id: "charts",
-    eyebrow: "All-platform rules",
-    title: "Charts criteria",
-    summary: "Use this when people ask what actually moves which chart, what the unit math means, or why different goals matter.",
+    ...coreGuideMetaById.charts,
+    eyebrow: coreGuideMetaById.charts.detail,
     icon: <BarChart3 className="h-4 w-4" />,
-    highlights: ["Hot 100 = streaming-heavy singles", "Billboard 200 = sales + TEA + SEA", "RIAA uses its own unit rules"],
     sections: [
       {
         title: "Billboard basics",
@@ -771,11 +768,19 @@ function CoreGuideDetailModal({
   )
 }
 
-export function CoreGuideLibrary() {
-  const [activeGuideId, setActiveGuideId] = useState<CoreGuide["id"]>("streaming")
+export function CoreGuideLibrary({
+  initialGuideId = DEFAULT_CORE_GUIDE_ID
+}: {
+  initialGuideId?: CoreGuideId
+}) {
+  const [activeGuideId, setActiveGuideId] = useState<CoreGuide["id"]>(initialGuideId)
   const [detailOpen, setDetailOpen] = useState(false)
   const detailPanelRef = useRef<HTMLDivElement | null>(null)
   const activeGuide = CORE_GUIDES.find((guide) => guide.id === activeGuideId) ?? CORE_GUIDES[0]
+
+  useEffect(() => {
+    setActiveGuideId(initialGuideId)
+  }, [initialGuideId])
 
   const scrollToActiveGuide = () => {
     window.requestAnimationFrame(() => {
@@ -784,7 +789,7 @@ export function CoreGuideLibrary() {
   }
 
   return (
-    <section className="space-y-5">
+    <section id="core-guide-library" className="scroll-mt-28 space-y-5">
       <div className="rounded-[1.9rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.07),rgba(255,255,255,0.02))] p-4 backdrop-blur-sm sm:p-5">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div className="space-y-2">

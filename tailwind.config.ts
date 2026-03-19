@@ -7,9 +7,13 @@ const config = {
   theme: {
     container: {
       center: true,
-      padding: "1rem",
+      padding: {
+        DEFAULT: "1rem",
+        sm: "2rem",
+        lg: "2rem"
+      },
       screens: {
-        "2xl": "1400px"
+        "2xl": "1800px"
       }
     },
     extend: {
@@ -53,7 +57,7 @@ const config = {
       },
       fontFamily: {
         body: ["var(--font-body)", "system-ui", "sans-serif"],
-        heading: ["var(--font-heading)", "Georgia", "serif"],
+        heading: ["var(--font-heading)", "system-ui", "sans-serif"],
         display: ["var(--font-display)", "system-ui", "sans-serif"]
       },
       borderRadius: {

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { z } from "zod"
+import { missionCellOrder, missionMechanicOrder } from "@/modules/missions/config"
 import {
   clearMissionOverrideForNextPeriod,
   upsertMissionOverrideForNextPeriod
@@ -8,15 +9,8 @@ import {
 export const dynamic = "force-dynamic"
 
 const overrideSchema = z.object({
-  missionCellKey: z.enum([
-    "daily_india",
-    "daily_individual",
-    "daily_state",
-    "weekly_india",
-    "weekly_individual",
-    "weekly_state"
-  ]),
-  mechanicType: z.enum(["track_streams", "album_completions"]),
+  missionCellKey: z.enum(missionCellOrder),
+  mechanicType: z.enum(missionMechanicOrder),
   targetKeys: z.array(z.string().min(1)),
   goalUnits: z.number().int().positive(),
   rewardPoints: z.number().int().positive()
@@ -40,19 +34,20 @@ export async function DELETE(request: Request) {
   try {
     const { searchParams } = new URL(request.url)
     const missionCellKey = searchParams.get("missionCellKey")
+    const mechanicType = searchParams.get("mechanicType")
 
-    if (
-      missionCellKey !== "daily_india" &&
-      missionCellKey !== "daily_individual" &&
-      missionCellKey !== "daily_state" &&
-      missionCellKey !== "weekly_india" &&
-      missionCellKey !== "weekly_individual" &&
-      missionCellKey !== "weekly_state"
-    ) {
+    if (!missionCellKey || !missionCellOrder.includes(missionCellKey as (typeof missionCellOrder)[number])) {
       return NextResponse.json({ error: "Valid missionCellKey is required." }, { status: 400 })
     }
 
-    const state = await clearMissionOverrideForNextPeriod(missionCellKey)
+    if (!mechanicType || !missionMechanicOrder.includes(mechanicType as (typeof missionMechanicOrder)[number])) {
+      return NextResponse.json({ error: "Valid mechanicType is required." }, { status: 400 })
+    }
+
+    const state = await clearMissionOverrideForNextPeriod(
+      missionCellKey as (typeof missionCellOrder)[number],
+      mechanicType as (typeof missionMechanicOrder)[number]
+    )
 
     return NextResponse.json({ state })
   } catch (error) {

@@ -305,9 +305,12 @@ export async function getLocationRegistrySummary() {
 }
 
 function getHostingSuggestion(headersLike: Headers) {
-  const countryCode = headersLike.get("x-vercel-ip-country")
-  const stateName = headersLike.get("x-vercel-ip-country-region")
-  const cityName = headersLike.get("x-vercel-ip-city")
+  const countryCode = headersLike.get("x-vercel-ip-country") ?? headersLike.get("cf-ipcountry")
+  const stateName =
+    headersLike.get("x-vercel-ip-country-region") ??
+    headersLike.get("cf-region") ??
+    headersLike.get("cf-region-code")
+  const cityName = headersLike.get("x-vercel-ip-city") ?? headersLike.get("cf-ipcity") ?? headersLike.get("cf-city")
 
   if (!countryCode || countryCode.toUpperCase() !== "IN" || !stateName) {
     return null

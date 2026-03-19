@@ -1,313 +1,416 @@
 import Link from "next/link"
+import type { LucideIcon } from "lucide-react"
 import {
   ArrowRight,
   Award,
   CalendarDays,
-  FileText,
-  Link2,
   MapPin,
-  Target,
+  Sparkles,
   Trophy,
   Users
 } from "lucide-react"
 import { ActivityMapPanel } from "@/components/activity-map/activity-map-panel"
-import { PageHero } from "@/components/shared/page-hero"
-import { ProgressBar } from "@/components/shared/progress-bar"
-import { Badge } from "@/components/ui/badge"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { QuickReadsPanel } from "@/components/dashboard/quick-reads-panel"
+import { DashboardPanel, DashboardPanelHeader, DashboardPill } from "@/components/dashboard/dashboard-shell"
+import { MissionControlPanel } from "@/components/dashboard/mission-control-panel"
+import { TrackerConnectionManager } from "@/components/dashboard/tracker-connection-manager"
 import { getActivityMapView } from "@/modules/activity-map/service"
-import { listEvents } from "@/modules/events/service"
+import { type EventView, listEvents } from "@/modules/events/service"
+import { listGuideQuickReads } from "@/modules/guides/service"
 import { listLeaderboards } from "@/modules/leaderboards/service"
-import { listMissionCards } from "@/modules/missions/service"
-import { listTrackerConnections } from "@/modules/trackers/service"
+import type { LeaderboardBoardView, LeaderboardEntryView } from "@/modules/leaderboards/types"
+import { getMissionPageState } from "@/modules/missions/service"
 import { getCurrentUserProfile } from "@/modules/users/service"
-import { listVotingGuides } from "@/modules/voting-guides/service"
+import type { UserProfileView } from "@/modules/users/types"
 import { formatCompactNumber, formatDateLabel } from "@/lib/utils"
 
 export const dynamic = "force-dynamic"
 
 const rankCards = [
-  { key: "individualDailyRank", label: "Your Daily Rank", icon: Trophy },
-  { key: "individualWeeklyRank", label: "Your Weekly Rank", icon: Trophy },
-  { key: "stateDailyRank", label: "State Daily Rank", icon: Users },
-  { key: "stateWeeklyRank", label: "State Weekly Rank", icon: Award }
+  {
+    key: "individualDailyRank",
+    label: "Your daily rank",
+    compactLabel: "Your daily",
+    icon: Award,
+    mobileMeta: "Today",
+    footnote: "Verified streams and mission points counted today."
+  },
+  {
+    key: "individualWeeklyRank",
+    label: "Your weekly rank",
+    compactLabel: "Your weekly",
+    icon: Award,
+    mobileMeta: "This week",
+    footnote: "Your standing for the full current week."
+  },
+  {
+    key: "stateDailyRank",
+    label: "State daily rank",
+    compactLabel: "State daily",
+    icon: Users,
+    mobileMeta: "State today",
+    footnote: "How your state is performing today."
+  },
+  {
+    key: "stateWeeklyRank",
+    label: "State weekly rank",
+    compactLabel: "State weekly",
+    icon: Award,
+    mobileMeta: "State week",
+    footnote: "How your state is doing across the week."
+  }
 ] as const
 
+type SimpleStatCardProps = {
+  label: string
+  value: React.ReactNode
+  description: React.ReactNode
+  icon?: LucideIcon
+}
+
+function SimpleStatCard({ description, icon: Icon, label, value }: SimpleStatCardProps) {
+  return (
+    <div className="rounded-[1.15rem] border border-white/10 bg-white/[0.04] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+      <div className="flex items-center gap-2 text-sm font-medium text-white/72">
+        {Icon ? <Icon className="h-4 w-4 text-[hsl(265,70%,72%)]" /> : null}
+        <span>{label}</span>
+      </div>
+      <div className="mt-2 space-y-1">
+        <div className="text-lg font-semibold text-white">{value}</div>
+        <p className="text-sm leading-relaxed text-white/58">{description}</p>
+      </div>
+    </div>
+  )
+}
+
+function formatRankValue(value: number | null) {
+  return value ? `#${value}` : "Unranked"
+}
+
+function formatEventDay(value: string) {
+  return new Intl.DateTimeFormat("en-IN", {
+    day: "2-digit"
+  }).format(new Date(value))
+}
+
+function formatEventMonth(value: string) {
+  return new Intl.DateTimeFormat("en-IN", {
+    month: "short"
+  }).format(new Date(value))
+}
+
+function isLiveEvent(event: EventView) {
+  return new Date(event.startsAt).getTime() <= Date.now()
+}
+
+function getMovement(entry: LeaderboardEntryView) {
+  if (entry.previousRank == null) {
+    return null
+  }
+
+  const delta = entry.previousRank - entry.rank
+
+  if (delta > 0) {
+    return {
+      label: `Up ${delta}`,
+      tone: "teal" as const
+    }
+  }
+
+  if (delta < 0) {
+    return {
+      label: `Down ${Math.abs(delta)}`,
+      tone: "rose" as const
+    }
+  }
+
+  return {
+    label: "No change",
+    tone: "neutral" as const
+  }
+}
+
+function LeaderboardSnapshotGrid({ profile }: { profile: UserProfileView }) {
+  return (
+    <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4">
+      {rankCards.map((item) => {
+        const Icon = item.icon
+        const value = profile[item.key]
+        const isStateRank = item.key === "stateDailyRank" || item.key === "stateWeeklyRank"
+
+        return (
+          <div
+            key={item.key}
+            className="rounded-[1rem] border border-white/10 bg-white/[0.04] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] sm:p-4"
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex h-8 w-8 items-center justify-center rounded-[0.9rem] bg-white/8 text-white sm:h-10 sm:w-10 sm:rounded-[1rem]">
+                <Icon className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+              </div>
+              <span className="rounded-full border border-white/10 bg-white/6 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em] text-white/50">
+                {item.mobileMeta}
+              </span>
+            </div>
+
+            <div className="mt-4">
+              <p className="text-[11px] font-medium leading-4 text-white/64 sm:hidden">{item.compactLabel}</p>
+              <p className="hidden text-sm font-medium text-white/72 sm:block">{item.label}</p>
+              <p className="mt-1 text-[1.75rem] font-semibold leading-none text-white sm:text-2xl">
+                {formatRankValue(value)}
+              </p>
+            </div>
+
+            <p className="mt-3 text-[11px] leading-4 text-white/52 sm:hidden">
+              {isStateRank ? profile.stateLabel : item.mobileMeta}
+            </p>
+            <p className="mt-3 hidden text-sm leading-relaxed text-white/56 sm:block">
+              {isStateRank
+                ? `${profile.stateLabel}. ${item.footnote}`
+                : item.footnote}
+            </p>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function DashboardHeaderPanel({
+  missionState,
+  profile
+}: {
+  missionState: Awaited<ReturnType<typeof getMissionPageState>>
+  profile: UserProfileView
+}) {
+  const cityValue = profile.cityLabel ?? profile.suggestedCityLabel ?? "City or town not set"
+  const cityTone = profile.cityMode === "confirmed" ? "Confirmed city" : profile.cityMode === "ip_fallback" ? "Fallback city" : "Add city"
+  const stateDescription =
+    profile.cityMode === "confirmed"
+      ? "Leaderboard scoring location is confirmed and your hotspot map can stay precise."
+      : profile.cityMode === "ip_fallback"
+        ? "State scoring is live. Confirm your city if you want more accurate hotspot attribution."
+        : "Confirm your state and add your city or town to improve leaderboard and hotspot accuracy."
+
+  return (
+    <DashboardPanel className="p-3.5 sm:p-4 lg:p-5">
+      <div className="flex flex-wrap gap-2">
+        <DashboardPill icon={Sparkles} tone="purple">
+          My ARMY Room
+        </DashboardPill>
+        <DashboardPill icon={MapPin} tone={profile.regionConfirmed ? "teal" : "saffron"}>
+          {profile.stateLabel}
+        </DashboardPill>
+      </div>
+
+      <div className="mt-4 space-y-2">
+        <h1 className="font-heading text-[2rem] font-semibold tracking-tight text-white sm:text-[2.4rem]">
+          Namaste, {profile.displayName}!
+        </h1>
+        <p className="max-w-xl text-sm leading-relaxed text-white/62 sm:text-[15px]">
+          Your weekly mission, scoring setup, and location at a glance.
+        </p>
+      </div>
+
+      <div className="mt-3 rounded-[1.2rem] border border-white/10 bg-white/[0.04] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-sm font-medium text-white">Leaderboard snapshot</p>
+            <p className="mt-1 hidden text-sm text-white/58 sm:block">
+              These four ranks are the fast answer to where you and your state stand right now.
+            </p>
+          </div>
+          <DashboardPill tone="purple">Live standings</DashboardPill>
+        </div>
+
+        <div className="mt-4">
+          <LeaderboardSnapshotGrid profile={profile} />
+        </div>
+      </div>
+
+      <div className="mt-3 grid gap-3 md:grid-cols-2">
+        <TrackerConnectionManager
+          isAuthenticated={missionState.isAuthenticated}
+          trackerConnection={missionState.trackerConnection}
+          streamPointValue={missionState.streamPointValue}
+          triggerVariant="status-card"
+          verificationBlockedReason={missionState.verificationBlockedReason}
+        />
+        <SimpleStatCard
+          description={stateDescription}
+          icon={MapPin}
+          label="State status"
+          value={
+            <div className="space-y-1">
+              <p>{profile.stateLabel}</p>
+              <p className="text-sm font-medium text-white/58">
+                {cityTone}: <span className="text-white/78">{cityValue}</span>
+              </p>
+            </div>
+          }
+        />
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-3">
+        <Link className="btn-bts-primary text-sm" href="/missions">
+          Continue missions <ArrowRight className="h-4 w-4" />
+        </Link>
+        <Link className="btn-bts-secondary text-sm" href="/profile">
+          Refine profile <ArrowRight className="h-4 w-4" />
+        </Link>
+      </div>
+    </DashboardPanel>
+  )
+}
+
+function EventPanel({ events }: { events: EventView[] }) {
+  const nextEvent = events[0]
+
+  return (
+    <DashboardPanel className="p-3.5 sm:p-4 lg:p-5">
+      <DashboardPanelHeader
+        action={
+          <Link className="inline-flex items-center gap-2 text-sm font-medium text-white/72 hover:text-white" href="/events">
+            View all <ArrowRight className="h-4 w-4" />
+          </Link>
+        }
+        badge="Events"
+        badgeIcon={CalendarDays}
+        badgeTone="saffron"
+        description="The next community event stays visible here without overpowering the page."
+        title="Next event"
+      />
+
+      <div className="mt-5">
+        {nextEvent ? (
+          <div className="rounded-[1.1rem] border border-white/10 bg-white/[0.04] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+            <div className="flex flex-wrap gap-4">
+              <div className="flex min-w-[82px] shrink-0 flex-col items-center justify-center rounded-[1rem] border border-white/10 bg-black/15 px-4 py-3 text-center">
+                <span className="text-3xl font-semibold text-white">{formatEventDay(nextEvent.startsAt)}</span>
+                <span className="text-sm font-medium text-white/58">{formatEventMonth(nextEvent.startsAt)}</span>
+              </div>
+
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap gap-2">
+                  <DashboardPill tone="saffron">{nextEvent.eventType.replace("_", " ")}</DashboardPill>
+                  <DashboardPill tone={isLiveEvent(nextEvent) ? "rose" : "neutral"}>
+                    {isLiveEvent(nextEvent) ? "Live now" : formatDateLabel(nextEvent.startsAt)}
+                  </DashboardPill>
+                </div>
+                <p className="mt-3 font-semibold text-white">{nextEvent.title}</p>
+                <p className="mt-2 text-sm leading-relaxed text-white/58">{nextEvent.note}</p>
+                <p className="mt-3 text-sm text-white/52">{nextEvent.location}</p>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="rounded-[1.1rem] border border-dashed border-white/14 bg-white/[0.03] px-5 py-8 text-center text-sm text-white/62">
+            No upcoming events
+          </div>
+        )}
+      </div>
+    </DashboardPanel>
+  )
+}
+
+function LeaderboardPanel({ board }: { board?: LeaderboardBoardView }) {
+  return (
+    <DashboardPanel className="p-3.5 sm:p-5 lg:p-6">
+      <DashboardPanelHeader
+        action={
+          <Link className="inline-flex items-center gap-2 text-sm font-medium text-white/72 hover:text-white" href="/leaderboards">
+            View all <ArrowRight className="h-4 w-4" />
+          </Link>
+        }
+        badge="Leaderboard"
+        badgeIcon={Trophy}
+        badgeTone="purple"
+        description={board?.headline ?? "Verified weekly rankings"}
+        title="Weekly individual board"
+      />
+
+      <div className="mt-6 space-y-3">
+        {board && board.entries.length > 0 ? (
+          board.entries.slice(0, 5).map((entry) => {
+            const movement = getMovement(entry)
+
+            return (
+              <div
+                key={entry.competitorKey}
+                className="rounded-[1.15rem] border border-white/10 bg-white/[0.04] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
+              >
+                <div className="flex items-center gap-4">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/8 text-sm font-semibold text-white">
+                    {entry.rank}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="truncate font-semibold text-white">{entry.displayName}</p>
+                      {movement ? <DashboardPill tone={movement.tone}>{movement.label}</DashboardPill> : null}
+                    </div>
+                    <p className="mt-1 text-sm text-white/56">Verified BTS streams plus mission rewards</p>
+                  </div>
+                  <span className="shrink-0 text-lg font-semibold text-white">
+                    {formatCompactNumber(entry.score)}
+                  </span>
+                </div>
+              </div>
+            )
+          })
+        ) : (
+          <div className="rounded-[1.15rem] border border-dashed border-white/14 bg-white/[0.03] px-5 py-8 text-center text-sm text-white/62">
+            Verify streams and complete missions to appear here.
+          </div>
+        )}
+      </div>
+
+      {board?.currentUserEntry ? (
+        <div className="mt-4 rounded-[1.15rem] border border-[hsl(265,70%,65%)]/18 bg-[hsl(265,70%,65%)]/10 p-4">
+          <p className="font-medium text-white">You are #{board.currentUserEntry.rank} on this board.</p>
+          <p className="mt-1 text-sm text-white/62">
+            {formatCompactNumber(board.currentUserEntry.score)} points in the current weekly window.
+          </p>
+        </div>
+      ) : null}
+    </DashboardPanel>
+  )
+}
+
 export default async function DashboardPage() {
-  const [profile, trackers, missions, boards, events, guides, dailyActivityMap] = await Promise.all([
-    getCurrentUserProfile(),
-    listTrackerConnections(),
-    listMissionCards(),
+  const [missionState, boards, events, guides, dailyActivityMap] = await Promise.all([
+    getMissionPageState(),
     listLeaderboards(),
     listEvents(),
-    listVotingGuides(),
+    listGuideQuickReads(),
     getActivityMapView("daily")
   ])
 
-  const leadMission = missions.find((mission) => mission.missionCellKey === "weekly_individual") ?? missions[0]
+  const missions = [...missionState.weekly, ...missionState.daily]
+  const profile = await getCurrentUserProfile({ boards, missions })
   const individualBoard =
     boards.find((board) => board.boardType === "individual" && board.period === "weekly") ?? boards[0]
 
   return (
-    <div className="space-y-8">
-      <PageHero
-        eyebrow="My ARMY Room"
-        title={`Namaste, ${profile.displayName}!`}
-        description="Your weekly mission, tracker status, and the rankings that now matter most: you and your state."
-      />
+    <div className="relative isolate">
+      <div className="relative z-10 space-y-3 sm:space-y-6 lg:space-y-8">
+        <section className="space-y-3 sm:space-y-4">
+          <DashboardHeaderPanel missionState={missionState} profile={profile} />
+          <QuickReadsPanel guides={guides} />
+        </section>
 
-      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {rankCards.map((item) => {
-          const Icon = item.icon
-          const value = profile[item.key]
-
-          return (
-            <Card key={item.key}>
-              <CardContent className="p-5">
-                <div className="mb-3 flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground">
-                    <Icon className="h-5 w-5" />
-                  </div>
-                  <div>
-                <p className="text-xs text-muted-foreground">{item.label}</p>
-                <p className="text-2xl font-semibold">{value ? `#${value}` : "—"}</p>
-                  </div>
-                </div>
-                <p className="text-xs text-muted-foreground">{profile.stateLabel}</p>
-              </CardContent>
-            </Card>
-          )
-        })}
-      </section>
-
-      <section className="grid gap-6 xl:grid-cols-[0.8fr_1.2fr]">
-        <Card className="bg-white/90">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-slate-900">
-              <MapPin className="h-5 w-5 text-[hsl(265,70%,55%)]" />
-              Location Summary
-            </CardTitle>
-            <CardDescription className="text-slate-600">
-              Your confirmed state drives scoring. City remains optional and only feeds hotspot attribution.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4 text-slate-700">
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4">
-                <p className="text-xs uppercase tracking-[0.2em] text-slate-500">State</p>
-                <p className="mt-2 text-lg font-semibold text-slate-900">{profile.stateLabel}</p>
-                <p className="mt-1 text-sm text-slate-600">Required for verified stream points and all state boards.</p>
-              </div>
-              <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4">
-                <p className="text-xs uppercase tracking-[0.2em] text-slate-500">City status</p>
-                <p className="mt-2 text-lg font-semibold text-slate-900">
-                  {profile.cityLabel ?? profile.suggestedCityLabel ?? "Missing"}
-                </p>
-                <p className="mt-1 text-sm text-slate-600">
-                  {profile.cityMode === "confirmed"
-                    ? "Confirmed and used for hotspot placement."
-                    : profile.cityMode === "ip_fallback"
-                      ? "Stored as an unconfirmed hotspot fallback."
-                      : "Optional. Add one to sharpen the map."}
-                </p>
-              </div>
-            </div>
-
-            {profile.cityMode === "ip_fallback" && profile.suggestedCityLabel ? (
-              <div className="rounded-[1.5rem] border border-[hsl(25,90%,55%)]/20 bg-[hsl(25,90%,55%)]/10 p-4 text-sm">
-                Confirm <span className="font-semibold text-slate-900">{profile.suggestedCityLabel}</span> if it
-                looks right. It won&apos;t change scoring, but it will move your activity from the state layer to a
-                specific hotspot.
-              </div>
-            ) : null}
-
-            {profile.locationNeedsReview ? (
-              <div className="rounded-[1.5rem] border border-[hsl(265,70%,55%)]/20 bg-[hsl(265,70%,55%)]/10 p-4 text-sm">
-                Your location was carried over from legacy free text and still needs a canonical match.
-              </div>
-            ) : null}
-
-            <Link className="inline-flex text-sm font-semibold text-[hsl(265,70%,55%)] hover:underline" href="/profile">
-              Open profile location settings <ArrowRight className="ml-1 h-4 w-4" />
-            </Link>
-          </CardContent>
-        </Card>
+        <section className="grid items-start gap-3 sm:gap-5 xl:grid-cols-[minmax(0,1.35fr)_300px]">
+          <MissionControlPanel missionState={missionState} />
+          <EventPanel events={events} />
+        </section>
 
         <ActivityMapPanel
-          description="Daily and weekly toggles use the live location activity snapshots. State intensity follows the leaderboard point model; city hotspots surface only when a resolved place exists."
+          description="See how India is moving right now. The map uses the same verified stream and mission data that powers your leaderboard view."
           initialMap={dailyActivityMap}
           title="Track India activity by state and hotspot"
           variant="dashboard"
         />
-      </section>
 
-      <section className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
-        {leadMission ? (
-          <Card className="relative overflow-hidden border-0 shadow-purple-glow">
-            <div className="absolute inset-0 bg-gradient-to-br from-[hsl(265,60%,55%)] via-[hsl(265,60%,45%)] to-[hsl(265,70%,35%)]" />
-            <CardHeader className="relative pt-6">
-              <Badge className="w-fit bg-white/20 text-white border-0 backdrop-blur-sm">
-                <Target className="mr-1 h-3 w-3" />
-                Weekly Personal Mission
-              </Badge>
-              <CardTitle className="mt-4 text-2xl text-white md:text-3xl">{leadMission.title}</CardTitle>
-              <CardDescription className="max-w-xl text-white/70">{leadMission.description}</CardDescription>
-            </CardHeader>
-            <CardContent className="relative space-y-4 pb-6">
-              <div className="rounded-xl bg-white/10 p-4 backdrop-blur-sm">
-                <div className="mb-2 flex items-center justify-between text-sm text-white/80">
-                  <span>{leadMission.focus}</span>
-                  <span className="font-semibold text-white">
-                    {leadMission.aggregateProgress} / {leadMission.goalUnits}
-                  </span>
-                </div>
-                <ProgressBar
-                  className="bg-white/20"
-                  max={leadMission.goalUnits || 1}
-                  value={leadMission.aggregateProgress}
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="rounded-xl bg-white/10 p-3 backdrop-blur-sm">
-                  <p className="text-[10px] uppercase tracking-wider text-white/60">Reward</p>
-                  <p className="mt-1 text-sm font-medium text-white">{leadMission.rewardLabel}</p>
-                </div>
-                <div className="rounded-xl bg-white/10 p-3 backdrop-blur-sm">
-                  <p className="text-[10px] uppercase tracking-wider text-white/60">Focus Track</p>
-                  <p className="mt-1 text-sm font-medium text-white">{profile.focusTrack}</p>
-                </div>
-              </div>
-              <Link
-                className="inline-flex items-center gap-2 text-sm text-white/80 transition-colors hover:text-white"
-                href="/missions"
-              >
-                View all missions <ArrowRight className="h-4 w-4" />
-              </Link>
-            </CardContent>
-          </Card>
-        ) : (
-          <Card>
-            <CardContent className="p-6 text-center">
-              <p className="text-muted-foreground">No active missions. Sync the BTS catalog from admin.</p>
-            </CardContent>
-          </Card>
-        )}
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                <Link2 className="h-4 w-4" />
-              </div>
-              Connected Trackers
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {trackers.length > 0 ? (
-              trackers.map((tracker) => (
-                <div key={tracker.provider} className="rounded-xl border border-border/50 p-4">
-                  <div className="mb-2 flex items-center justify-between">
-                    <p className="font-medium capitalize">{tracker.provider}</p>
-                    <Badge className={tracker.verificationStatus === "verified" ? "bg-green-100 text-green-700" : "bg-muted text-muted-foreground"}>
-                      {tracker.verificationStatus}
-                    </Badge>
-                  </div>
-                  <p className="text-sm text-muted-foreground">{tracker.helperText}</p>
-                  <p className="mt-2 text-xs text-muted-foreground">@{tracker.username}</p>
-                </div>
-              ))
-            ) : (
-              <div className="rounded-xl border border-dashed border-border/50 p-6 text-center">
-                <p className="text-sm text-muted-foreground">No trackers connected yet.</p>
-                <Link className="mt-2 inline-block text-xs text-primary hover:underline" href="/missions">
-                  Connect Last.fm on the missions page
-                </Link>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </section>
-
-      <section className="grid gap-6 lg:grid-cols-3">
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle>Weekly Individual Board</CardTitle>
-                <CardDescription>{individualBoard?.headline ?? "Verified weekly rankings"}</CardDescription>
-              </div>
-              <Link className="flex items-center gap-1 text-sm text-primary hover:underline" href="/leaderboards">
-                View all <ArrowRight className="h-4 w-4" />
-              </Link>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {individualBoard && individualBoard.entries.length > 0 ? (
-              individualBoard.entries.slice(0, 5).map((entry) => (
-                <div key={entry.competitorKey} className="flex items-center gap-4 rounded-xl bg-muted/30 p-3">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-sm font-semibold text-primary">
-                    {entry.rank}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate font-medium">{entry.displayName}</p>
-                    <p className="text-sm text-muted-foreground">Verified BTS streams + mission rewards</p>
-                  </div>
-                  <span className="font-semibold text-primary">{formatCompactNumber(entry.score)}</span>
-                </div>
-              ))
-            ) : (
-              <div className="py-8 text-center text-muted-foreground">
-                <p className="text-sm">Verify streams and complete missions to appear here.</p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <div className="space-y-6">
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2 text-base">
-                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                  <CalendarDays className="h-4 w-4" />
-                </div>
-                Next Event
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {events[0] ? (
-                <div>
-                  <p className="font-medium">{events[0].title}</p>
-                  <p className="mt-1 text-sm text-muted-foreground">{events[0].note}</p>
-                  <p className="mt-2 text-xs text-muted-foreground">
-                    {formatDateLabel(events[0].startsAt)} · {events[0].location}
-                  </p>
-                </div>
-              ) : (
-                <p className="text-sm text-muted-foreground">No upcoming events</p>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2 text-base">
-                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                  <FileText className="h-4 w-4" />
-                </div>
-                Quick Reads
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {guides.slice(0, 3).map((guide) => (
-                <div key={guide.slug} className="rounded-xl border border-border/50 p-4">
-                  <p className="font-medium">{guide.title}</p>
-                  <p className="mt-1 text-sm text-muted-foreground">{guide.summary}</p>
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-        </div>
-      </section>
+        <LeaderboardPanel board={individualBoard} />
+      </div>
     </div>
   )
 }

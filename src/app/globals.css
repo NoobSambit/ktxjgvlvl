@@ -1,13 +1,13 @@
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Sora:wght@300;400;500;600;700;800&family=DM+Sans:ital,wght@0,400;0,500;0,700;1,400&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
-  --font-body: "Sora", "system-ui", sans-serif;
-  --font-heading: "Space Grotesk", "system-ui", sans-serif;
-  --font-display: "DM Sans", "system-ui", sans-serif;
+  --font-body: "Manrope", "system-ui", sans-serif;
+  --font-heading: "Plus Jakarta Sans", "system-ui", sans-serif;
+  --font-display: "Plus Jakarta Sans", "system-ui", sans-serif;
   
   --background: 265 40% 8%;
   --foreground: 0 0% 92%;
@@ -41,10 +41,66 @@
   --india-turmeric: 45 80% 55%;
   
   --radius: 1rem;
+  --scrollbar-track: linear-gradient(180deg, hsl(265 22% 20% / 0.96), hsl(265 18% 12% / 0.96));
+  --scrollbar-thumb: linear-gradient(
+    90deg,
+    hsl(25 92% 56% / 0.98) 0%,
+    hsl(25 92% 56% / 0.98) 33.33%,
+    hsl(0 0% 95% / 0.96) 33.33%,
+    hsl(0 0% 95% / 0.96) 66.66%,
+    hsl(160 62% 40% / 0.98) 66.66%,
+    hsl(160 62% 40% / 0.98) 100%
+  );
+  --scrollbar-thumb-hover: linear-gradient(
+    90deg,
+    hsl(25 94% 60% / 0.99) 0%,
+    hsl(25 94% 60% / 0.99) 33.33%,
+    hsl(0 0% 98% / 0.98) 33.33%,
+    hsl(0 0% 98% / 0.98) 66.66%,
+    hsl(160 66% 44% / 0.99) 66.66%,
+    hsl(160 66% 44% / 0.99) 100%
+  );
+  --scrollbar-border: hsl(0 0% 100% / 0.14);
 }
 
 * {
   @apply border-border;
+  scrollbar-width: thin;
+  scrollbar-color: hsl(160 62% 40% / 0.96) hsl(265 18% 12% / 0.96);
+}
+
+*::-webkit-scrollbar {
+  width: 14px;
+  height: 14px;
+}
+
+*::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1px hsl(0 0% 100% / 0.05);
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 999px;
+  background-repeat: no-repeat;
+  background-size: 100% 100%;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  box-shadow:
+    inset 0 0 0 1px var(--scrollbar-border),
+    0 0 16px -10px hsl(25 90% 55% / 0.32),
+    0 0 20px -14px hsl(170 60% 45% / 0.32);
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+  background-repeat: no-repeat;
+  background-size: 100% 100%;
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 body {
@@ -55,6 +111,7 @@ body {
     radial-gradient(ellipse at 50% 80%, hsl(170 60% 45% / 0.08) 0%, transparent 50%),
     linear-gradient(180deg, hsl(265 40% 8%) 0%, hsl(265 35% 6%) 100%);
   min-height: 100vh;
+  overflow-x: hidden;
 }
 
 body::before {
@@ -80,6 +137,10 @@ a {
 }
 
 @layer components {
+  .site-shell {
+    @apply mx-auto w-full max-w-[1800px] px-2 sm:px-4 lg:px-8;
+  }
+
   .card-dark {
     @apply bg-card/80 backdrop-blur-md border border-white/10 rounded-2xl shadow-xl transition-all duration-300;
   }
@@ -136,6 +197,10 @@ a {
   .glass-effect {
     @apply bg-white/5 backdrop-blur-lg border border-white/10;
   }
+
+  .glass-card {
+    @apply bg-[hsl(265,30%,12%)]/60 backdrop-blur-xl border border-white/10 shadow-2xl;
+  }
   
   .glow-purple {
     box-shadow: 0 0 30px -5px hsl(265 70% 65% / 0.3);
@@ -147,6 +212,14 @@ a {
 }
 
 @layer utilities {
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
   .text-balance {
     text-wrap: balance;
   }

@@ -12,6 +12,7 @@ const leaderboardBoardSchema = new Schema(
     startsAt: { type: Date, required: true },
     endsAt: { type: Date, required: true },
     isDirty: { type: Boolean, default: true },
+    materializationStartedAt: { type: Date },
     lastMaterializedAt: { type: Date }
   },
   { timestamps: true }

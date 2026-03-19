@@ -1,0 +1,26 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "main": "cloudflare-worker.mjs",
+  "name": "india-for-bts",
+  "compatibility_date": "2024-12-30",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "triggers": {
+    "crons": [
+      "5 * * * *",
+      "15 * * * *",
+      "0 */6 * * *",
+      "31 18 * * *",
+      "35 18 * * 0"
+    ]
+  },
+  "kv_namespaces": [
+    {
+      "binding": "NEXT_CACHE_WORKERS_KV",
+      "id": "replace-with-your-kv-namespace-id"
+    }
+  ]
+}

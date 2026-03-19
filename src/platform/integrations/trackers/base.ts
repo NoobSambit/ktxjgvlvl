@@ -1,4 +1,6 @@
-export type TrackerProvider = "lastfm" | "musicat" | "statsfm"
+export const TRACKER_PROVIDERS = ["lastfm", "musicat", "statsfm"] as const
+
+export type TrackerProvider = (typeof TRACKER_PROVIDERS)[number]
 
 export type NormalizedStreamEvent = {
   provider: TrackerProvider

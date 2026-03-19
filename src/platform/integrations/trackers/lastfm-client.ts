@@ -1,6 +1,7 @@
 import { env } from "@/platform/validation/env"
 
 const LASTFM_BASE_URL = "https://ws.audioscrobbler.com/2.0/"
+const LASTFM_REQUEST_TIMEOUT_MS = 15_000
 
 type LastFmApiImage = {
   "#text": string
@@ -106,10 +107,24 @@ export class LastFmClient {
       url.searchParams.set(key, String(value))
     }
 
-    const response = await fetch(url, {
-      method: "GET",
-      cache: "no-store"
-    })
+    let response: Response
+
+    try {
+      response = await fetch(url, {
+        method: "GET",
+        cache: "no-store",
+        signal: AbortSignal.timeout(LASTFM_REQUEST_TIMEOUT_MS)
+      })
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        (error.name === "TimeoutError" || error.name === "AbortError")
+      ) {
+        throw new Error("Last.fm request timed out.")
+      }
+
+      throw error
+    }
 
     if (!response.ok) {
       throw new Error(`Last.fm request failed with status ${response.status}.`)

@@ -19,6 +19,7 @@ export type LeaderboardBoardView = {
   endsAt: string
   headline: string
   entries: LeaderboardEntryView[]
+  totalParticipants: number
   currentUserEntry?: LeaderboardEntryView | null
   currentStateEntry?: LeaderboardEntryView | null
 }

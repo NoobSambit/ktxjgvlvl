@@ -1,18 +1,16 @@
-import { SiteHeader } from "@/components/shared/site-header"
+import { SiteHeader } from "@/components/shared/site-header-wrapper"
 import { SiteFooter } from "@/components/shared/site-footer"
+import { AppBgWaves } from "@/components/shared/app-bg-waves"
 
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
-    <>
+    <div className="flex min-h-screen flex-col relative isolate">
+      <AppBgWaves />
       <SiteHeader />
-      <main className="relative py-10">
-        <div className="absolute inset-0 overflow-hidden pointer-events-none">
-          <div className="absolute top-1/4 -left-32 w-64 h-64 bg-gradient-to-br from-[hsl(265,60%,55%)]/15 to-transparent rounded-full blur-3xl" />
-          <div className="absolute bottom-1/4 -right-32 w-64 h-64 bg-gradient-to-br from-[hsl(30,100%,50%)]/15 to-transparent rounded-full blur-3xl" />
-        </div>
-        <div className="container relative">{children}</div>
+      <main className="relative z-10 flex-1 py-12 sm:py-20">
+        <div className="site-shell relative">{children}</div>
       </main>
       <SiteFooter />
-    </>
+    </div>
   )
 }

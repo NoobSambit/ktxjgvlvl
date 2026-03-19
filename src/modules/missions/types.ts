@@ -1,3 +1,4 @@
+import type { TrackerProvider } from "@/platform/integrations/trackers/base"
 import type { CatalogOption } from "@/modules/catalog/service"
 import type {
   MissionCadence,
@@ -62,7 +63,8 @@ export type MissionPageState = {
   daily: MissionCard[]
   weekly: MissionCard[]
   isAuthenticated: boolean
-  lastfmConnection: {
+  trackerConnection: {
+    provider: TrackerProvider
     username: string
     verificationStatus: "pending" | "verified" | "failed"
     lastSuccessfulSyncAt?: string
@@ -105,19 +107,17 @@ export type AdminMissionCellView = {
   defaultGoalUnitsByMechanic: MissionMechanicValueMap<number>
   trackOptions: CatalogOption[]
   albumOptions: CatalogOption[]
-  liveMission: MissionCard | null
+  liveMissions: MissionMechanicValueMap<MissionCard | null>
   nextPeriodKey: string
-  nextMission: AdminMissionPlanView | null
-  nextOverride: AdminMissionOverrideView | null
-  liveAggregateProgress?: number
-  contributorCount?: number
-  liveStateBreakdown?: Array<{
+  nextMissions: MissionMechanicValueMap<AdminMissionPlanView | null>
+  nextOverrides: MissionMechanicValueMap<AdminMissionOverrideView | null>
+  liveStateBreakdownByMechanic: MissionMechanicValueMap<Array<{
     stateKey: string
     stateLabel: string
     progressUnits: number
     goalUnits: number
     completedAt?: string
-  }>
+  }>>
 }
 
 export type MissionAdminState = {

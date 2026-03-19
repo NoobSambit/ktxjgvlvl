@@ -20,6 +20,7 @@ const trackerConnectionSchema = new Schema(
 )
 
 trackerConnectionSchema.index({ provider: 1, username: 1 })
+trackerConnectionSchema.index({ userId: 1 }, { unique: true })
 trackerConnectionSchema.index({ userId: 1, provider: 1 }, { unique: true })
 
 const regionConfirmationSchema = new Schema(

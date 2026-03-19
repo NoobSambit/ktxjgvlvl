@@ -2,40 +2,53 @@
 
 import { useRouter } from "next/navigation"
 import { useState, useTransition } from "react"
+import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import type { CatalogOption } from "@/modules/catalog/service"
-import type { AdminMissionCellView, MissionAdminState, MissionCard } from "@/modules/missions/types"
+import { missionMechanicOrder, type MissionMechanicType } from "@/modules/missions/config"
+import type { AdminMissionCellView, MissionAdminState } from "@/modules/missions/types"
 
 type DraftState = Record<
   string,
   {
-    mechanicType: "track_streams" | "album_completions"
     targetKeys: string[]
     goalUnits: string
     rewardPoints: string
   }
 >
 
+type AdminCadenceFilter = "daily" | "weekly"
+type AdminMissionKindFilter = "all" | AdminMissionCellView["missionKind"]
+
+function getDraftKey(missionCellKey: string, mechanicType: MissionMechanicType) {
+  return `${missionCellKey}:${mechanicType}`
+}
+
+function getCellAnchorId(missionCellKey: string, mechanicType: MissionMechanicType) {
+  return `planner-${missionCellKey}-${mechanicType}`
+}
+
 function buildDrafts(state: MissionAdminState): DraftState {
   return Object.fromEntries(
-    state.cells.map((cell) => {
-      const mechanicType = cell.nextOverride?.mechanicType ?? cell.defaultMechanicType
+    state.cells.flatMap((cell) =>
+      missionMechanicOrder.map((mechanicType) => {
+        const nextOverride = cell.nextOverrides[mechanicType]
 
-      return [
-        cell.missionCellKey,
-        {
-          mechanicType,
-          targetKeys: cell.nextOverride?.targetKeys ?? [],
-          goalUnits: String(cell.nextOverride?.goalUnits ?? cell.defaultGoalUnitsByMechanic[mechanicType]),
-          rewardPoints: String(
-            cell.nextOverride?.rewardPoints ?? cell.defaultRewardPointsByMechanic[mechanicType]
-          )
-        }
-      ] as const
-    })
+        return [
+          getDraftKey(cell.missionCellKey, mechanicType),
+          {
+            targetKeys: nextOverride?.targetKeys ?? [],
+            goalUnits: String(nextOverride?.goalUnits ?? cell.defaultGoalUnitsByMechanic[mechanicType]),
+            rewardPoints: String(
+              nextOverride?.rewardPoints ?? cell.defaultRewardPointsByMechanic[mechanicType]
+            )
+          }
+        ] as const
+      })
+    )
   )
 }
 
@@ -63,13 +76,35 @@ function getMissionKindLabel(cell: AdminMissionCellView) {
   return "Personal"
 }
 
-function getMechanicLabel(value: "track_streams" | "album_completions") {
+function getMissionKindFilterLabel(value: AdminMissionKindFilter) {
+  if (value === "all") {
+    return "All cells"
+  }
+
+  if (value === "india_shared") {
+    return "India shared"
+  }
+
+  if (value === "state_shared") {
+    return "State shared"
+  }
+
+  return "Personal"
+}
+
+function getMechanicLabel(value: MissionMechanicType) {
   return value === "track_streams" ? "Streaming" : "Album Completion"
+}
+
+function getMechanicDescription(value: MissionMechanicType) {
+  return value === "track_streams"
+    ? "Use specific BTS songs with per-target stream progress."
+    : "Require listeners to complete full BTS albums from verified track plays."
 }
 
 function getMissionTargetOptions(
   cell: AdminMissionCellView,
-  mechanicType: "track_streams" | "album_completions"
+  mechanicType: MissionMechanicType
 ) {
   return mechanicType === "track_streams" ? cell.trackOptions : cell.albumOptions
 }
@@ -143,56 +178,6 @@ function MiniStat({ label, value }: { label: string; value: string | number }) {
   )
 }
 
-function StateBreakdown({
-  items
-}: {
-  items: NonNullable<AdminMissionCellView["liveStateBreakdown"]>
-}) {
-  return (
-    <div className="space-y-2">
-      <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
-        Leading state progress
-      </p>
-      <div className="space-y-2">
-        {items.map((item) => (
-          <div
-            className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm"
-            key={item.stateKey}
-          >
-            <div className="min-w-0">
-              <p className="font-medium text-foreground">{item.stateLabel}</p>
-              <p className="text-xs text-muted-foreground">
-                {item.progressUnits}/{item.goalUnits}
-                {item.completedAt ? ` · completed ${formatDateTime(item.completedAt)}` : ""}
-              </p>
-            </div>
-            <Badge variant={item.completedAt ? "accent" : "muted"}>
-              {item.completedAt ? "Done" : "Active"}
-            </Badge>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-function resolveMissionTargetOptions(
-  cell: AdminMissionCellView,
-  mission: MissionCard | null
-) {
-  if (!mission) {
-    return []
-  }
-
-  const optionMap = new Map(
-    getMissionTargetOptions(cell, mission.mechanicType).map((option) => [option.key, option] as const)
-  )
-
-  return mission.targets
-    .map((target) => optionMap.get(target.key))
-    .filter((option): option is CatalogOption => Boolean(option))
-}
-
 function CatalogPicker({
   cell,
   mechanicType,
@@ -200,7 +185,7 @@ function CatalogPicker({
   onChange
 }: {
   cell: AdminMissionCellView
-  mechanicType: "track_streams" | "album_completions"
+  mechanicType: MissionMechanicType
   selectedKeys: string[]
   onChange: (nextKeys: string[]) => void
 }) {
@@ -231,11 +216,14 @@ function CatalogPicker({
   return (
     <div className="space-y-4 rounded-[1.5rem] border border-white/10 bg-[hsl(265,25%,10%)]/80 p-4">
       <div className="space-y-2">
-        <label className="text-sm font-medium text-foreground" htmlFor={`${cell.missionCellKey}-search`}>
+        <label
+          className="text-sm font-medium text-foreground"
+          htmlFor={getDraftKey(cell.missionCellKey, mechanicType)}
+        >
           Pick specific {mechanicType === "track_streams" ? "songs" : "albums"} for the next cycle
         </label>
         <Input
-          id={`${cell.missionCellKey}-search`}
+          id={getDraftKey(cell.missionCellKey, mechanicType)}
           onChange={(event) => setQuery(event.target.value)}
           placeholder={`Search ${mechanicType === "track_streams" ? "songs" : "albums"}`}
           value={query}
@@ -311,87 +299,29 @@ function CatalogPicker({
   )
 }
 
-function MissionLivePanel({ cell }: { cell: AdminMissionCellView }) {
-  const liveMissionTargets = resolveMissionTargetOptions(cell, cell.liveMission)
-
-  return (
-    <div className="space-y-4 rounded-[1.75rem] border border-white/10 bg-[hsl(265,25%,10%)]/80 p-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Live now</p>
-          <h4 className="mt-1 text-lg font-semibold text-foreground">
-            {cell.liveMission?.title ?? "Waiting for generation"}
-          </h4>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Current missions are locked. Admin changes only apply to the next reset.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Badge variant="muted">{cell.liveMission?.periodKey ?? "Not generated"}</Badge>
-          {cell.liveMission ? (
-            <Badge variant={cell.liveMission.selectionMode === "admin" ? "accent" : "default"}>
-              {cell.liveMission.selectionMode === "admin" ? "Admin set" : "Random"}
-            </Badge>
-          ) : null}
-        </div>
-      </div>
-
-      {cell.liveMission ? (
-        <>
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <MiniStat label="Mechanic" value={getMechanicLabel(cell.liveMission.mechanicType)} />
-            <MiniStat label="Completion reward" value={cell.liveMission.rewardLabel} />
-            <MiniStat
-              label="Progress"
-              value={`${cell.liveMission.aggregateProgress}/${cell.liveMission.goalUnits}`}
-            />
-            <MiniStat
-              label="Contributors"
-              value={typeof cell.liveMission.contributorCount === "number" ? cell.liveMission.contributorCount : "N/A"}
-            />
-          </div>
-
-          <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4">
-            <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Mission focus</p>
-            <p className="mt-2 text-sm font-medium text-foreground">{cell.liveMission.focus}</p>
-            <p className="mt-1 text-sm text-muted-foreground">{cell.liveMission.description}</p>
-          </div>
-
-          <div className="space-y-2">
-            <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Live targets</p>
-            <TargetPreviewGrid
-              compact
-              emptyLabel="Target previews are not available for the live mission."
-              options={liveMissionTargets}
-            />
-          </div>
-
-          {cell.liveStateBreakdown?.length ? <StateBreakdown items={cell.liveStateBreakdown} /> : null}
-        </>
-      ) : (
-        <div className="rounded-2xl border border-dashed border-white/10 bg-white/5 px-4 py-5 text-sm text-muted-foreground">
-          This mission cell has no live instance yet. The reset job will create it when enough catalog data is available.
-        </div>
-      )}
-    </div>
-  )
-}
-
 function MissionPlannerPanel({
   cell,
+  mechanicType,
   draft,
+  nextOverride,
   disabled,
   onDraftChange,
   onSave,
   onClear
 }: {
   cell: AdminMissionCellView
+  mechanicType: MissionMechanicType
   draft: DraftState[string]
+  nextOverride: AdminMissionCellView["nextOverrides"]["track_streams"]
   disabled: boolean
   onDraftChange: (value: DraftState[string]) => void
   onSave: () => void
   onClear: () => void
 }) {
+  const selectedTargets = draft.targetKeys
+    .map((key) => getMissionTargetOptions(cell, mechanicType).find((option) => option.key === key))
+    .filter((option): option is CatalogOption => Boolean(option))
+
   return (
     <div className="space-y-4 rounded-[1.75rem] border border-[hsl(14,78%,68%)]/15 bg-gradient-to-br from-[hsl(14,78%,68%)]/8 to-[hsl(170,60%,40%)]/6 p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -399,78 +329,29 @@ function MissionPlannerPanel({
           <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Next up</p>
           <h4 className="mt-1 text-lg font-semibold text-foreground">{cell.nextPeriodKey}</h4>
           <p className="mt-1 text-sm text-muted-foreground">
-            Save a custom slate for the next reset or leave it empty and let the generator randomize songs or albums based on the selected mechanic.
+            Save a custom {mechanicType === "track_streams" ? "song" : "album"} slate for the next reset or leave it empty and let the generator randomize this mechanic.
           </p>
         </div>
-        <Badge variant={cell.nextOverride ? "accent" : "muted"}>
-          {cell.nextOverride ? "Admin override queued" : "Random fallback queued"}
-        </Badge>
+        <div className="flex flex-wrap gap-2">
+          <Badge variant="muted">{getMechanicLabel(mechanicType)}</Badge>
+          <Badge variant={nextOverride ? "accent" : "muted"}>
+            {nextOverride ? "Admin override queued" : "Random fallback queued"}
+          </Badge>
+        </div>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <MiniStat label="Selection mode" value={cell.nextMission?.selectionMode === "admin" ? "Admin" : "Random"} />
-        <MiniStat
-          label="Mechanic"
-          value={getMechanicLabel(cell.nextMission?.mechanicType ?? draft.mechanicType)}
-        />
-        <MiniStat label="Goal units" value={cell.nextMission?.goalUnits ?? "Pending"} />
-        <MiniStat label="Completion reward" value={cell.nextMission?.rewardLabel ?? "Pending"} />
+        <MiniStat label="Selection mode" value={selectedTargets.length > 0 ? "Admin" : "Random"} />
+        <MiniStat label="Mechanic" value={getMechanicLabel(mechanicType)} />
+        <MiniStat label="Goal units" value={draft.goalUnits || "Pending"} />
+        <MiniStat label="Completion reward" value={draft.rewardPoints || "Pending"} />
       </div>
-
-      {cell.nextMission ? (
-        <div className="space-y-2">
-          <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Next mission preview</p>
-          <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4">
-            <p className="text-sm font-medium text-foreground">{cell.nextMission.focus}</p>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Preview generated for {cell.nextMission.periodKey}. This is what the cron job will use unless you change the inputs below.
-            </p>
-          </div>
-          <TargetPreviewGrid
-            emptyLabel="No preview targets were generated for the next cycle."
-            options={cell.nextMission.targets}
-          />
-        </div>
-      ) : (
-        <div className="rounded-2xl border border-dashed border-white/10 bg-white/5 px-4 py-5 text-sm text-muted-foreground">
-          No preview could be generated yet. Sync the catalog before planning this mission.
-        </div>
-      )}
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,13rem)_minmax(0,1fr)]">
         <div className="space-y-4">
-          <div className="space-y-2">
-            <p className="text-sm font-medium text-foreground">Mission mechanic</p>
-            <div className="grid gap-2">
-              {(["track_streams", "album_completions"] as const).map((mechanicType) => (
-                <button
-                  aria-pressed={draft.mechanicType === mechanicType}
-                  className={`rounded-2xl border px-4 py-3 text-left text-sm transition ${
-                    draft.mechanicType === mechanicType
-                      ? "border-[hsl(170,60%,40%)]/50 bg-[hsl(170,60%,40%)]/12 text-foreground"
-                      : "border-white/10 bg-white/5 text-muted-foreground hover:border-white/20 hover:bg-white/10"
-                  }`}
-                  key={mechanicType}
-                    onClick={() =>
-                      onDraftChange({
-                        ...draft,
-                        mechanicType,
-                        targetKeys: [],
-                        goalUnits: String(cell.defaultGoalUnitsByMechanic[mechanicType]),
-                        rewardPoints: String(cell.defaultRewardPointsByMechanic[mechanicType])
-                      })
-                    }
-                    type="button"
-                >
-                  <p className="font-medium text-foreground">{getMechanicLabel(mechanicType)}</p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {mechanicType === "track_streams"
-                      ? "Use specific BTS songs with per-target stream progress."
-                      : "Require listeners to complete full BTS albums from verified track plays."}
-                  </p>
-                </button>
-              ))}
-            </div>
+          <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4">
+            <p className="text-sm font-medium text-foreground">{getMechanicLabel(mechanicType)}</p>
+            <p className="mt-1 text-xs text-muted-foreground">{getMechanicDescription(mechanicType)}</p>
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
@@ -499,25 +380,59 @@ function MissionPlannerPanel({
 
         <CatalogPicker
           cell={cell}
-          mechanicType={draft.mechanicType}
+          mechanicType={mechanicType}
           onChange={(targetKeys) => onDraftChange({ ...draft, targetKeys })}
           selectedKeys={draft.targetKeys}
         />
       </div>
 
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
+            Selected mission preview
+          </p>
+          <Badge variant={selectedTargets.length > 0 ? "accent" : "muted"}>
+            {selectedTargets.length > 0
+              ? `${selectedTargets.length} target${selectedTargets.length === 1 ? "" : "s"} selected`
+              : "Builds after selection"}
+          </Badge>
+        </div>
+
+        {selectedTargets.length > 0 ? (
+          <>
+            <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4">
+              <p className="text-sm font-medium text-foreground">
+                {getMechanicLabel(mechanicType)} mission preview for {cell.nextPeriodKey}
+              </p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                This preview is built only from the songs or albums selected above and will be used when you save this override.
+              </p>
+            </div>
+            <TargetPreviewGrid
+              emptyLabel="Select songs or albums to build a preview."
+              options={selectedTargets}
+            />
+          </>
+        ) : (
+          <div className="rounded-2xl border border-dashed border-white/10 bg-white/5 px-4 py-5 text-sm text-muted-foreground">
+            Select one or more {mechanicType === "track_streams" ? "songs" : "albums"} above to build a preview. If you leave this empty, the next reset will use the random fallback.
+          </div>
+        )}
+      </div>
+
       <div className="flex flex-wrap items-center gap-3">
         <Button disabled={disabled} onClick={onSave}>
-          Save next {cell.cadence} mission
+          Save next {getMechanicLabel(mechanicType).toLowerCase()} mission
         </Button>
         <Button
-          disabled={disabled || !cell.nextOverride}
+          disabled={disabled || !nextOverride}
           onClick={onClear}
           variant="secondary"
         >
           Clear override
         </Button>
         <p className="text-sm text-muted-foreground">
-          Clearing the override keeps the current live mission intact and returns the next reset to its default random songs or albums for that cell.
+          Clearing the override keeps the current live mission intact and returns this mechanic to its default random fallback for the next reset.
         </p>
       </div>
     </div>
@@ -530,6 +445,8 @@ export function MissionAdminConsole({ initialState }: { initialState: MissionAdm
   const [drafts, setDrafts] = useState<DraftState>(() => buildDrafts(initialState))
   const [message, setMessage] = useState("")
   const [pendingKey, setPendingKey] = useState<string | null>(null)
+  const [selectedCadence, setSelectedCadence] = useState<AdminCadenceFilter>("daily")
+  const [selectedMissionKind, setSelectedMissionKind] = useState<AdminMissionKindFilter>("all")
   const [isPending, startTransition] = useTransition()
 
   function applyState(nextState: MissionAdminState) {
@@ -537,49 +454,26 @@ export function MissionAdminConsole({ initialState }: { initialState: MissionAdm
     setDrafts(buildDrafts(nextState))
   }
 
-  function updateDraft(cellKey: string, nextDraft: DraftState[string]) {
+  function updateDraft(draftKey: string, nextDraft: DraftState[string]) {
     setDrafts((currentDrafts) => ({
       ...currentDrafts,
-      [cellKey]: nextDraft
+      [draftKey]: nextDraft
     }))
   }
 
-  async function syncCatalog() {
-    setPendingKey("catalog")
+  async function saveOverride(cell: AdminMissionCellView, mechanicType: MissionMechanicType) {
+    const draftKey = getDraftKey(cell.missionCellKey, mechanicType)
+    setPendingKey(draftKey)
     setMessage("")
 
     try {
-      const response = await fetch("/api/v1/admin/catalog-sync", { method: "POST" })
-      const data = await response.json()
-
-      if (!response.ok) {
-        throw new Error(data.error ?? "Catalog sync failed.")
-      }
-
-      applyState(data.state)
-      setMessage(
-        `Catalog synced successfully. ${data.summary.importedTracks} songs and ${data.summary.importedAlbums} albums are available for mission planning.`
-      )
-      startTransition(() => router.refresh())
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Catalog sync failed.")
-    } finally {
-      setPendingKey(null)
-    }
-  }
-
-  async function saveOverride(cell: AdminMissionCellView) {
-    setPendingKey(cell.missionCellKey)
-    setMessage("")
-
-    try {
-      const draft = drafts[cell.missionCellKey]
+      const draft = drafts[draftKey]
       const response = await fetch("/api/v1/admin/mission-overrides", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           missionCellKey: cell.missionCellKey,
-          mechanicType: draft.mechanicType,
+          mechanicType,
           targetKeys: draft.targetKeys,
           goalUnits: Number.parseInt(draft.goalUnits, 10),
           rewardPoints: Number.parseInt(draft.rewardPoints, 10)
@@ -592,7 +486,9 @@ export function MissionAdminConsole({ initialState }: { initialState: MissionAdm
       }
 
       applyState(data.state)
-      setMessage(`${cell.label} queued for ${cell.nextPeriodKey}. The live mission was not changed.`)
+      setMessage(
+        `${cell.label} ${getMechanicLabel(mechanicType).toLowerCase()} queued for ${cell.nextPeriodKey}. The live mission was not changed.`
+      )
       startTransition(() => router.refresh())
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not save this mission override.")
@@ -601,13 +497,14 @@ export function MissionAdminConsole({ initialState }: { initialState: MissionAdm
     }
   }
 
-  async function clearOverride(cell: AdminMissionCellView) {
-    setPendingKey(`clear:${cell.missionCellKey}`)
+  async function clearOverride(cell: AdminMissionCellView, mechanicType: MissionMechanicType) {
+    const draftKey = getDraftKey(cell.missionCellKey, mechanicType)
+    setPendingKey(`clear:${draftKey}`)
     setMessage("")
 
     try {
       const response = await fetch(
-        `/api/v1/admin/mission-overrides?missionCellKey=${cell.missionCellKey}`,
+        `/api/v1/admin/mission-overrides?missionCellKey=${cell.missionCellKey}&mechanicType=${mechanicType}`,
         { method: "DELETE" }
       )
       const data = await response.json()
@@ -617,7 +514,9 @@ export function MissionAdminConsole({ initialState }: { initialState: MissionAdm
       }
 
       applyState(data.state)
-      setMessage(`${cell.label} for ${cell.nextPeriodKey} is back on random fallback.`)
+      setMessage(
+        `${cell.label} ${getMechanicLabel(mechanicType).toLowerCase()} for ${cell.nextPeriodKey} is back on random fallback.`
+      )
       startTransition(() => router.refresh())
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not clear this mission override.")
@@ -628,120 +527,221 @@ export function MissionAdminConsole({ initialState }: { initialState: MissionAdm
 
   const dailyCells = state.cells.filter((cell) => cell.cadence === "daily")
   const weeklyCells = state.cells.filter((cell) => cell.cadence === "weekly")
+  const visibleSection = {
+    cadence: selectedCadence,
+    title: selectedCadence === "daily" ? "Daily planning" : "Weekly planning",
+    description:
+      selectedCadence === "daily"
+        ? `These overrides are saved only for ${state.nextPeriodKeys.daily}.`
+        : `These overrides are saved only for ${state.nextPeriodKeys.weekly}.`,
+    cells: (selectedCadence === "daily" ? dailyCells : weeklyCells).filter((cell) =>
+      selectedMissionKind === "all" ? true : cell.missionKind === selectedMissionKind
+    )
+  }
 
   return (
     <div className="space-y-8">
       <Card className="border-[hsl(14,78%,68%)]/15 bg-gradient-to-br from-[hsl(14,78%,68%)]/10 via-[hsl(265,25%,14%)] to-[hsl(170,60%,40%)]/8">
-        <CardHeader className="gap-4 lg:flex-row lg:items-end lg:justify-between">
+        <CardHeader className="gap-4">
           <div className="space-y-2">
             <Badge variant="accent">Mission control</Badge>
             <CardTitle className="text-2xl">Plan only the next reset</CardTitle>
             <CardDescription className="max-w-3xl text-sm leading-6">
-              Daily and weekly live missions are locked once generated. Admin can queue exact songs or albums for only the next daily reset or the next weekly reset. If you leave a mission cell without selected targets, the reset job falls back to the cell’s default mechanic and random BTS-family picks from the local catalog.
+              Queue the exact songs and albums that should go live at the next daily or weekly reset. Each mission cell supports separate streaming and album-completion planning lanes.
             </CardDescription>
           </div>
-          <div className="flex flex-wrap gap-3">
-            <Button disabled={isPending || pendingKey === "catalog"} onClick={syncCatalog} variant="secondary">
-              Sync music catalog
-            </Button>
-          </div>
         </CardHeader>
-        <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <MiniStat label="Live daily" value={state.currentPeriodKeys.daily} />
-          <MiniStat label="Next daily" value={state.nextPeriodKeys.daily} />
-          <MiniStat label="Live weekly" value={state.currentPeriodKeys.weekly} />
-          <MiniStat label="Next weekly" value={state.nextPeriodKeys.weekly} />
+        <CardContent className="space-y-4">
+          <div className="grid gap-3 md:grid-cols-2">
+            <MiniStat label="Next daily" value={state.nextPeriodKeys.daily} />
+            <MiniStat label="Next weekly" value={state.nextPeriodKeys.weekly} />
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-3">
+            <MiniStat label="Last tracker sync" value={formatDateTime(state.lastTrackerSyncAt)} />
+            <MiniStat label="Mission generation" value={formatDateTime(state.lastMissionGenerationAt)} />
+            <MiniStat
+              label="Leaderboard materialization"
+              value={formatDateTime(state.lastLeaderboardMaterializedAt)}
+            />
+          </div>
         </CardContent>
       </Card>
-
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
-        <MiniStat label="Imported songs" value={state.catalogSummary.trackCount} />
-        <MiniStat label="Imported albums" value={state.catalogSummary.albumCount} />
-        <MiniStat label="Stream points" value={state.streamPointValue} />
-        <MiniStat label="Last tracker sync" value={formatDateTime(state.lastTrackerSyncAt)} />
-        <MiniStat label="Mission generation" value={formatDateTime(state.lastMissionGenerationAt)} />
-        <MiniStat
-          label="Leaderboard materialization"
-          value={formatDateTime(state.lastLeaderboardMaterializedAt)}
-        />
-      </div>
 
       <p aria-live="polite" className="min-h-6 text-sm font-medium text-foreground">
         {message}
       </p>
 
-      {[
-        {
-          cadence: "daily" as const,
-          title: "Daily planning",
-          description: `These overrides are saved only for ${state.nextPeriodKeys.daily}.`,
-          cells: dailyCells
-        },
-        {
-          cadence: "weekly" as const,
-          title: "Weekly planning",
-          description: `These overrides are saved only for ${state.nextPeriodKeys.weekly}.`,
-          cells: weeklyCells
-        }
-      ].map((section) => (
-        <section className="space-y-4" key={section.cadence}>
-          <div className="space-y-2">
+      <section className="space-y-4">
+        <Card className="sticky top-4 z-10 border-white/10 bg-[hsl(265,25%,12%)]/92 backdrop-blur-xl">
+          <CardContent className="space-y-4 p-4 sm:p-5">
             <div className="flex flex-wrap items-center gap-3">
-              <h3 className="font-heading text-2xl font-semibold text-foreground">{section.title}</h3>
-              <Badge variant="muted">{section.description}</Badge>
+              <Badge variant="accent">Planner navigation</Badge>
+              <p className="text-sm text-muted-foreground">
+                Switch cadence, filter by mission scope, and jump directly into a mission lane.
+              </p>
             </div>
-            <p className="text-sm text-muted-foreground">
-              Each mission cell shows the live mission on the left and the queued next-cycle planner on the right.
-            </p>
-          </div>
 
-          <div className="grid gap-5">
-            {section.cells.map((cell) => {
-              const draft = drafts[cell.missionCellKey]
-              const disabled =
-                isPending ||
-                pendingKey === cell.missionCellKey ||
-                pendingKey === `clear:${cell.missionCellKey}` ||
-                pendingKey === "catalog"
+            <div className="grid gap-4 xl:grid-cols-[auto_auto_1fr]">
+              <div className="space-y-2">
+                <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Cadence</p>
+                <div className="flex flex-wrap gap-2">
+                  {([
+                    { value: "daily" as const, label: "Daily" },
+                    { value: "weekly" as const, label: "Weekly" }
+                  ]).map((item) => (
+                    <Button
+                      className={cn(
+                        "min-w-[7rem]",
+                        selectedCadence === item.value && "ring-2 ring-[hsl(14,78%,68%)]/50"
+                      )}
+                      key={item.value}
+                      onClick={() => setSelectedCadence(item.value)}
+                      type="button"
+                      variant={selectedCadence === item.value ? "default" : "ghost"}
+                    >
+                      {item.label}
+                    </Button>
+                  ))}
+                </div>
+              </div>
 
-              return (
-                <Card key={cell.missionCellKey}>
-                  <CardHeader className="space-y-4">
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div className="space-y-2">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <CardTitle>{cell.label}</CardTitle>
-                          <Badge>{getMissionKindLabel(cell)}</Badge>
-                        </div>
-                        <CardDescription className="max-w-3xl leading-6">
-                          {cell.description}
-                        </CardDescription>
-                      </div>
-                      <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-right text-sm">
-                        <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
-                          Next editable period
-                        </p>
-                        <p className="mt-1 font-semibold text-foreground">{cell.nextPeriodKey}</p>
-                      </div>
+              <div className="space-y-2">
+                <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Cell scope</p>
+                <div className="flex flex-wrap gap-2">
+                  {([
+                    "all",
+                    "individual_personal",
+                    "state_shared",
+                    "india_shared"
+                  ] as const).map((value) => (
+                    <Button
+                      className={cn(
+                        selectedMissionKind === value && "ring-2 ring-[hsl(170,60%,40%)]/45"
+                      )}
+                      key={value}
+                      onClick={() => setSelectedMissionKind(value)}
+                      type="button"
+                      variant={selectedMissionKind === value ? "secondary" : "ghost"}
+                    >
+                      {getMissionKindFilterLabel(value)}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Quick jump</p>
+                  <p className="text-xs text-muted-foreground">
+                    {visibleSection.cells.length} cell{visibleSection.cells.length === 1 ? "" : "s"} visible
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {visibleSection.cells.flatMap((cell) =>
+                    missionMechanicOrder.map((mechanicType) => (
+                      <a
+                        className="inline-flex h-9 items-center rounded-full border border-white/10 bg-white/5 px-4 text-sm font-medium text-foreground transition hover:border-white/20 hover:bg-white/10"
+                        href={`#${getCellAnchorId(cell.missionCellKey, mechanicType)}`}
+                        key={getCellAnchorId(cell.missionCellKey, mechanicType)}
+                      >
+                        {cell.label} · {getMechanicLabel(mechanicType)}
+                      </a>
+                    ))
+                  )}
+                  {visibleSection.cells.length === 0 ? (
+                    <div className="rounded-full border border-dashed border-white/10 px-4 py-2 text-sm text-muted-foreground">
+                      No cells match this filter.
                     </div>
-                  </CardHeader>
-                  <CardContent className="grid gap-5 xl:grid-cols-2">
-                    <MissionLivePanel cell={cell} />
-                    <MissionPlannerPanel
-                      cell={cell}
-                      disabled={disabled}
-                      draft={draft}
-                      onClear={() => clearOverride(cell)}
-                      onDraftChange={(nextDraft) => updateDraft(cell.missionCellKey, nextDraft)}
-                      onSave={() => saveOverride(cell)}
-                    />
-                  </CardContent>
-                </Card>
-              )
-            })}
+                  ) : null}
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-center gap-3">
+            <h3 className="font-heading text-2xl font-semibold text-foreground">{visibleSection.title}</h3>
+            <Badge variant="muted">{visibleSection.description}</Badge>
           </div>
-        </section>
-      ))}
+          <p className="text-sm text-muted-foreground">
+            Each mission cell is focused on the queued configuration for the next reset.
+          </p>
+        </div>
+
+        <div className="grid gap-5">
+          {visibleSection.cells.map((cell) => (
+            <Card key={cell.missionCellKey}>
+              <CardHeader className="space-y-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <CardTitle>{cell.label}</CardTitle>
+                      <Badge>{getMissionKindLabel(cell)}</Badge>
+                    </div>
+                    <CardDescription className="max-w-3xl leading-6">
+                      {cell.description}
+                    </CardDescription>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-right text-sm">
+                    <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                      Next editable period
+                    </p>
+                    <p className="mt-1 font-semibold text-foreground">{cell.nextPeriodKey}</p>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-5">
+                {missionMechanicOrder.map((mechanicType) => {
+                  const draftKey = getDraftKey(cell.missionCellKey, mechanicType)
+                  const disabled =
+                    isPending ||
+                    pendingKey === draftKey ||
+                    pendingKey === `clear:${draftKey}`
+
+                  return (
+                    <section
+                      className="space-y-4 rounded-[1.5rem] border border-white/10 bg-black/10 p-4 scroll-mt-28"
+                      id={getCellAnchorId(cell.missionCellKey, mechanicType)}
+                      key={mechanicType}
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                            Mechanic lane
+                          </p>
+                          <h4 className="mt-1 text-lg font-semibold text-foreground">
+                            {getMechanicLabel(mechanicType)}
+                          </h4>
+                        </div>
+                        <Badge variant="muted">{getMechanicDescription(mechanicType)}</Badge>
+                      </div>
+
+                      <MissionPlannerPanel
+                        cell={cell}
+                        disabled={disabled}
+                        draft={drafts[draftKey]}
+                        mechanicType={mechanicType}
+                        nextOverride={cell.nextOverrides[mechanicType]}
+                        onClear={() => clearOverride(cell, mechanicType)}
+                        onDraftChange={(nextDraft) => updateDraft(draftKey, nextDraft)}
+                        onSave={() => saveOverride(cell, mechanicType)}
+                      />
+                    </section>
+                  )
+                })}
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+
+        {visibleSection.cells.length === 0 ? (
+          <div className="rounded-[1.75rem] border border-dashed border-white/10 bg-white/5 px-5 py-8 text-center text-sm text-muted-foreground">
+            No mission cells match the current cadence and scope filter.
+          </div>
+        ) : null}
+      </section>
     </div>
   )
 }

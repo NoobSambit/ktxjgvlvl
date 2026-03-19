@@ -17,7 +17,7 @@ const missionTargetSchema = new Schema(
 
 const missionInstanceSchema = new Schema(
   {
-    schemaVersion: { type: Number, default: 2, index: true },
+    schemaVersion: { type: Number, default: 3, index: true },
     cadence: { type: String, enum: ["daily", "weekly"], required: true, index: true },
     missionCellKey: {
       type: String,
@@ -65,11 +65,14 @@ const missionInstanceSchema = new Schema(
   { timestamps: true }
 )
 
-missionInstanceSchema.index({ schemaVersion: 1, missionCellKey: 1, periodKey: 1 }, { unique: true })
+missionInstanceSchema.index(
+  { schemaVersion: 1, missionCellKey: 1, mechanicType: 1, periodKey: 1 },
+  { unique: true }
+)
 
 const userMissionProgressSchema = new Schema(
   {
-    schemaVersion: { type: Number, default: 2, index: true },
+    schemaVersion: { type: Number, default: 3, index: true },
     missionInstanceId: {
       type: Schema.Types.ObjectId,
       required: true,
@@ -93,7 +96,7 @@ userMissionProgressSchema.index({ schemaVersion: 1, missionInstanceId: 1, userId
 
 const sharedMissionProgressSchema = new Schema(
   {
-    schemaVersion: { type: Number, default: 2, index: true },
+    schemaVersion: { type: Number, default: 3, index: true },
     missionInstanceId: {
       type: Schema.Types.ObjectId,
       required: true,
@@ -124,7 +127,7 @@ sharedMissionProgressSchema.index(
 
 const missionContributionSchema = new Schema(
   {
-    schemaVersion: { type: Number, default: 2, index: true },
+    schemaVersion: { type: Number, default: 3, index: true },
     missionInstanceId: {
       type: Schema.Types.ObjectId,
       required: true,
@@ -147,7 +150,7 @@ missionContributionSchema.index(
 
 const missionOverrideSchema = new Schema(
   {
-    schemaVersion: { type: Number, default: 2, index: true },
+    schemaVersion: { type: Number, default: 3, index: true },
     missionCellKey: {
       type: String,
       enum: [
@@ -174,7 +177,10 @@ const missionOverrideSchema = new Schema(
   { timestamps: true }
 )
 
-missionOverrideSchema.index({ schemaVersion: 1, missionCellKey: 1, periodKey: 1 }, { unique: true })
+missionOverrideSchema.index(
+  { schemaVersion: 1, missionCellKey: 1, mechanicType: 1, periodKey: 1 },
+  { unique: true }
+)
 
 export const MissionInstanceModel =
   models.MissionInstance || model("MissionInstance", missionInstanceSchema)

@@ -12,7 +12,7 @@ Model:
 
 Collection purpose:
 
-- Stores the live mission definition for a specific mission cell and India-time period.
+- Stores the live mission definition for a specific mission cell, mechanic, and India-time period.
 
 Important fields:
 
@@ -33,7 +33,7 @@ Important fields:
 
 Identity:
 
-- Unique on `schemaVersion + missionCellKey + periodKey`
+- Unique on `schemaVersion + missionCellKey + mechanicType + periodKey`
 
 Notes:
 
@@ -44,7 +44,7 @@ Notes:
 
 Purpose:
 
-- Stores admin overrides for the active daily or weekly period.
+- Stores admin overrides for the active daily or weekly period and mechanic.
 
 Important fields:
 
@@ -60,7 +60,7 @@ Important fields:
 
 Identity:
 
-- Unique on `schemaVersion + missionCellKey + periodKey`
+- Unique on `schemaVersion + missionCellKey + mechanicType + periodKey`
 
 Operational note:
 

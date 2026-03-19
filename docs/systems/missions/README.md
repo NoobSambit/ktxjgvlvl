@@ -13,6 +13,8 @@ The current implementation covers:
   - `weekly_india`
   - `weekly_individual`
   - `weekly_state`
+- 12 live mission instances:
+  - each cell now runs both `track_streams` and `album_completions`
 - 4 leaderboard boards:
   - daily individual
   - weekly individual
@@ -28,11 +30,11 @@ The current implementation covers:
 ### Mission kinds
 
 - `india_shared`
-  - One India-wide aggregate mission per cadence.
+  - One India-wide aggregate song mission and one India-wide aggregate album mission per cadence.
 - `individual_personal`
-  - One personal mission definition per cadence; every user progresses against the same target set independently.
+  - One personal song mission and one personal album mission per cadence; every user progresses against the same target set independently.
 - `state_shared`
-  - One shared mission definition per cadence; each state gets its own aggregate progress row.
+  - One shared song mission and one shared album mission per cadence; each state gets its own aggregate progress row.
 
 ### Mission mechanics
 
@@ -68,51 +70,12 @@ Implementation lives in `src/platform/time/india-periods.ts`.
 
 Defined in `src/modules/missions/config.ts`.
 
-- `daily_india`
-  - default mechanic: `track_streams`
-  - 10 random track targets
-  - goal `250`
-  - completion rewards:
-    - `track_streams`: `25`
-    - `album_completions`: `40`
-- `daily_individual`
-  - default mechanic: `album_completions`
-  - 1 random album target
-  - goal `1`
-  - completion rewards:
-    - `track_streams`: `50`
-    - `album_completions`: `75`
-- `daily_state`
-  - default mechanic: `track_streams`
-  - 10 random track targets
-  - goal `50`
-  - completion rewards:
-    - `track_streams`: `100`
-    - `album_completions`: `140`
-- `weekly_india`
-  - default mechanic: `album_completions`
-  - 5 random album targets
-  - shared goal `250`
-  - completion rewards:
-    - `track_streams`: `120`
-    - `album_completions`: `200`
-- `weekly_individual`
-  - default mechanic: `track_streams`
-  - 40 random track targets
-  - 5 streams per target
-  - goal `200`
-  - completion rewards:
-    - `track_streams`: `300`
-    - `album_completions`: `420`
-- `weekly_state`
-  - default mechanic: `album_completions`
-  - 5 random album targets
-  - shared goal `50`
-  - completion rewards:
-    - `track_streams`: `600`
-    - `album_completions`: `800`
-
-This produces a default live mix of 3 streaming cells and 3 album-completion cells.
+- Every cell generates both mechanics in parallel:
+  - `track_streams`
+    - uses the configured random track count, goal, and reward for that cell
+  - `album_completions`
+    - uses the configured random album count, goal, and reward for that cell
+- This produces a default live mix of 6 streaming missions and 6 album-completion missions.
 
 ## UI Surface Map
 
@@ -120,7 +83,7 @@ This produces a default live mix of 3 streaming cells and 3 album-completion cel
 
 - Missions page:
   - `src/app/(app)/missions/page.tsx`
-  - Renders two sections, `Daily` and `Weekly`, each with 3 cards.
+  - Renders two sections, `Daily` and `Weekly`, each with both song and album missions across all 3 scopes.
 - Leaderboards page:
   - `src/app/(app)/leaderboards/page.tsx`
   - Renders the 4 boards only.
@@ -150,10 +113,10 @@ This produces a default live mix of 3 streaming cells and 3 album-completion cel
 
 - Only Last.fm is supported for live mission verification.
 - Users must have a confirmed `region.state` to earn stream points or mission rewards.
-- Random/default mission generation follows the cell’s configured default mechanic and can randomize either tracks or albums.
-- Admin overrides may use `track_streams` or `album_completions`.
+- Random/default mission generation now creates both mechanics for every cell and randomizes tracks or albums per mechanic.
+- Admin overrides may target `track_streams` or `album_completions` independently for the same cell.
 - The admin UI only plans the next daily or weekly period. Current live missions are locked from the admin console.
-- If no next-period override exists for a mission cell, reset-time generation falls back to that cell’s default mechanic and random BTS-family track or album selection.
+- If no next-period override exists for a cell mechanic, reset-time generation falls back to that mechanic’s random BTS-family track or album selection.
 - Forced regeneration of a live mission period intentionally resets current mission progress, mission contributions, and mission-completion reward events for the replaced live missions.
 
 ## Read Next

@@ -10,6 +10,7 @@ export const missionCellOrder = [
 export type MissionCellKey = (typeof missionCellOrder)[number]
 export type MissionCadence = "daily" | "weekly"
 export type MissionKind = "india_shared" | "individual_personal" | "state_shared"
+export const missionMechanicOrder = ["track_streams", "album_completions"] as const
 export type MissionMechanicType = "track_streams" | "album_completions"
 export type MissionTargetKind = "track" | "album"
 export type RewardRouting =
@@ -40,7 +41,7 @@ export const missionCellConfig: Record<MissionCellKey, MissionCellConfig> = {
     cadence: "daily",
     missionKind: "india_shared",
     label: "India Daily Push",
-    description: "All contributors across India work on one shared BTS mission before reset.",
+    description: "All contributors across India work on shared BTS song and album missions before reset.",
     defaultRewardPoints: 25,
     defaultRewardPointsByMechanic: {
       track_streams: 25,
@@ -67,7 +68,7 @@ export const missionCellConfig: Record<MissionCellKey, MissionCellConfig> = {
     cadence: "daily",
     missionKind: "individual_personal",
     label: "Your Daily Mission",
-    description: "Finish today’s personal BTS mission and score for yourself and your state.",
+    description: "Finish today’s personal BTS song and album missions and score for yourself and your state.",
     defaultRewardPoints: 75,
     defaultRewardPointsByMechanic: {
       track_streams: 50,
@@ -94,7 +95,7 @@ export const missionCellConfig: Record<MissionCellKey, MissionCellConfig> = {
     cadence: "daily",
     missionKind: "state_shared",
     label: "Your State Daily Push",
-    description: "Your state works on the same BTS mission definition, but progress is tracked state by state.",
+    description: "Your state works on the same BTS song and album missions, with progress tracked state by state.",
     defaultRewardPoints: 100,
     defaultRewardPointsByMechanic: {
       track_streams: 100,
@@ -121,7 +122,7 @@ export const missionCellConfig: Record<MissionCellKey, MissionCellConfig> = {
     cadence: "weekly",
     missionKind: "india_shared",
     label: "India Weekly Push",
-    description: "A larger shared BTS mission for contributors across the full India weekly period.",
+    description: "Larger shared BTS song and album missions for contributors across the full India weekly period.",
     defaultRewardPoints: 200,
     defaultRewardPointsByMechanic: {
       track_streams: 120,
@@ -148,7 +149,7 @@ export const missionCellConfig: Record<MissionCellKey, MissionCellConfig> = {
     cadence: "weekly",
     missionKind: "individual_personal",
     label: "Your Weekly Mission",
-    description: "Keep your weekly BTS slate moving and turn completions into leaderboard points.",
+    description: "Keep your weekly BTS song and album slate moving and turn completions into leaderboard points.",
     defaultRewardPoints: 300,
     defaultRewardPointsByMechanic: {
       track_streams: 300,
@@ -175,7 +176,7 @@ export const missionCellConfig: Record<MissionCellKey, MissionCellConfig> = {
     cadence: "weekly",
     missionKind: "state_shared",
     label: "Your State Weekly Push",
-    description: "Every state races its own weekly BTS milestone using the same live mission definition.",
+    description: "Every state races its own weekly BTS song and album milestones using the same live mission definitions.",
     defaultRewardPoints: 800,
     defaultRewardPointsByMechanic: {
       track_streams: 600,

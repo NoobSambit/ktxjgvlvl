@@ -26,14 +26,13 @@ export async function runJob(
     case jobKeys.syncActiveTrackers: {
       await connectToDatabase()
       const verifiedConnections = await TrackerConnectionModel.countDocuments({
-        provider: "lastfm",
         verificationStatus: "verified"
       })
       const summary = await syncVerifiedTrackerConnections()
       return {
         jobKey,
         status: "completed",
-        summary: `Synced ${verifiedConnections} verified Last.fm connections; imported ${summary.syncedEvents} events and scored ${summary.scoredEvents} BTS-family streams${summary.failedUsers > 0 ? `; ${summary.failedUsers} connection(s) failed` : ""}`
+        summary: `Synced ${verifiedConnections} verified tracker connection(s); imported ${summary.syncedEvents} events and scored ${summary.scoredEvents} BTS-family streams${summary.failedUsers > 0 ? `; ${summary.failedUsers} connection(s) failed` : ""}`
       }
     }
     case jobKeys.generateDailyMissions: {

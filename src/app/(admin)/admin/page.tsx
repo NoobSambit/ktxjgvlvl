@@ -32,7 +32,7 @@ export default async function AdminPage() {
       <PageHero
         eyebrow="Admin"
         title="Control Room"
-        description="Plan the next mission reset, sync the BTS catalog, and keep platform jobs healthy without touching today’s live missions."
+        description="Plan the next mission reset, sync the BTS catalog, and keep platform jobs healthy from one admin surface."
       />
 
       <MissionAdminConsole initialState={missionAdminState} />

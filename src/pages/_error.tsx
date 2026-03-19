@@ -6,7 +6,7 @@ type ErrorProps = {
 
 function ErrorPage({ statusCode }: ErrorProps) {
   return (
-    <main className="container py-20">
+    <main className="site-shell py-20">
       <h1 className="font-[family-name:var(--font-heading)] text-4xl font-semibold">
         {statusCode ? `Error ${statusCode}` : "Something went wrong"}
       </h1>

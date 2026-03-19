@@ -1,9 +1,11 @@
 "use client"
 
+import { LogOut } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useState, useTransition } from "react"
+import { cn } from "@/lib/utils"
 
-export function SignOutButton() {
+export function SignOutButton({ className, children }: { className?: string, children?: React.ReactNode }) {
   const router = useRouter()
   const [message, setMessage] = useState("")
   const [isPending, startTransition] = useTransition()
@@ -34,12 +36,18 @@ export function SignOutButton() {
   return (
     <div className="flex items-center gap-2">
       <button
-        className="inline-flex h-9 items-center justify-center rounded-full px-4 text-sm font-semibold transition-colors hover:bg-foreground/5"
+        className={cn(
+          "inline-flex items-center justify-center transition-colors hover:bg-foreground/5",
+          !children && "h-9 rounded-full px-4 text-sm font-semibold",
+          className
+        )}
         disabled={isPending}
         onClick={signOut}
         type="button"
+        title="Sign Out"
       >
-        Sign out
+        {children || "Sign out"}
+        {!children && <LogOut className="ml-2 w-4 h-4" />}
       </button>
       {message ? <span className="text-xs text-muted-foreground">{message}</span> : null}
     </div>

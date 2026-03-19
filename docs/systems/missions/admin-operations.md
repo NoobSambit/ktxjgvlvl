@@ -116,7 +116,7 @@ That destructive path still exists at the service level for explicit mission reg
 
 Random mission generation currently:
 
-- uses each cell’s configured default mechanic
+- generates both mechanics for every cell
 - selects from local `isBTSFamily: true` catalog rows
 - excludes a set of low-quality random picks such as:
   - remix
@@ -133,25 +133,37 @@ Default cell mapping:
 
 - `daily_india`
   - `track_streams`
-  - 10 random tracks
-- `daily_individual`
+    - 10 random tracks
   - `album_completions`
-  - 1 random album
-  - goal `1`
+    - 1 random album
+- `daily_individual`
+  - `track_streams`
+    - 5 random tracks
+  - `album_completions`
+    - 1 random album
+    - goal `1`
 - `daily_state`
   - `track_streams`
-  - 10 random tracks
-- `weekly_india`
+    - 10 random tracks
   - `album_completions`
-  - 5 random albums
-  - shared goal `250`
+    - 1 random album
+- `weekly_india`
+  - `track_streams`
+    - 20 random tracks
+  - `album_completions`
+    - 5 random albums
+    - shared goal `250`
 - `weekly_individual`
   - `track_streams`
-  - 40 random tracks
-- `weekly_state`
+    - 40 random tracks
   - `album_completions`
-  - 5 random albums
-  - shared goal `50`
+    - 5 random albums
+- `weekly_state`
+  - `track_streams`
+    - 20 random tracks
+  - `album_completions`
+    - 5 random albums
+    - shared goal `50`
 
 Important limitation:
 
@@ -161,8 +173,8 @@ Important limitation:
 
 Operational behavior:
 
-- If no override exists for the next period, the admin console shows a random preview.
-- At reset time, the generator uses the same random-selection path, default mechanic, and default mechanic-specific completion reward to create the real mission instance.
+- If no override exists for the next period and mechanic, the admin console shows a random preview.
+- At reset time, the generator uses the same random-selection path and mechanic-specific completion reward to create the real mission instance for both mechanics.
 - The current live mission remains unchanged until that reset happens.
 
 ## Force Regeneration

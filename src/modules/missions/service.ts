@@ -39,6 +39,7 @@ import {
   getMissionCellConfig,
   missionCellConfig,
   missionCellOrder,
+  missionMechanicOrder,
   type MissionCadence,
   type MissionCellKey,
   type MissionKind,
@@ -50,7 +51,11 @@ import {
   normalizeArtistName,
   normalizeTrackName
 } from "@/modules/streaming/normalization"
+import { getTrackerProviderConfig } from "@/modules/trackers/provider-config"
 import type {
+  AdminMissionCellView,
+  AdminMissionOverrideView,
+  AdminMissionPlanView,
   MissionAdminState,
   MissionCard,
   MissionPageState,
@@ -91,6 +96,7 @@ const ALBUM_FILTER_KEYWORDS = [
 const MIN_ELIGIBLE_ALBUM_TRACKS = 6
 const INDIA_SCOPE_KEY = "india:all"
 const TRACK_VARIANT_DURATION_TOLERANCE_MS = 2_000
+const MISSION_SCHEMA_VERSION = 3
 
 type CatalogTrackDoc = {
   _id: Types.ObjectId
@@ -201,6 +207,17 @@ type MissionContributionDoc = {
   rewardAwardedAt?: Date
 }
 
+type MissionOverrideDoc = {
+  _id: Types.ObjectId
+  schemaVersion: number
+  missionCellKey: MissionCellKey
+  mechanicType: MissionMechanicType
+  targetKeys: string[]
+  goalUnits: number
+  rewardPoints: number
+  periodKey: string
+}
+
 type StreamEventDoc = {
   _id: Types.ObjectId
   userId: Types.ObjectId
@@ -284,10 +301,12 @@ function isEligibleAlbum(album: CatalogAlbumDoc) {
 
 function sortMissionInstances(instances: MissionInstanceDoc[]) {
   const order = new Map(missionCellOrder.map((missionCellKey, index) => [missionCellKey, index]))
+  const mechanicOrder = new Map(missionMechanicOrder.map((mechanicType, index) => [mechanicType, index]))
 
   return [...instances].sort(
     (left, right) =>
-      (order.get(left.missionCellKey) ?? 0) - (order.get(right.missionCellKey) ?? 0)
+      (order.get(left.missionCellKey) ?? 0) - (order.get(right.missionCellKey) ?? 0) ||
+      (mechanicOrder.get(left.mechanicType) ?? 0) - (mechanicOrder.get(right.mechanicType) ?? 0)
   )
 }
 
@@ -471,11 +490,65 @@ function buildRewardLabel(missionKind: MissionKind, rewardPoints: number) {
   return missionKind === "state_shared" ? `${rewardPoints} state points` : `${rewardPoints} points`
 }
 
+function buildMissionSlotKey(missionCellKey: MissionCellKey, mechanicType: MissionMechanicType) {
+  return `${missionCellKey}:${mechanicType}`
+}
+
+function buildMissionTitle(config: ReturnType<typeof getMissionCellConfig>, mechanicType: MissionMechanicType) {
+  return `${config.label} · ${mechanicType === "track_streams" ? "Songs" : "Albums"}`
+}
+
+function buildMissionMechanicMap<T>(getValue: (mechanicType: MissionMechanicType) => T) {
+  return {
+    track_streams: getValue("track_streams"),
+    album_completions: getValue("album_completions")
+  }
+}
+
+async function findMissionOverride(
+  missionCellKey: MissionCellKey,
+  mechanicType: MissionMechanicType,
+  periodKey: string
+) {
+  const override = (await MissionOverrideModel.findOne({
+    schemaVersion: MISSION_SCHEMA_VERSION,
+    missionCellKey,
+    mechanicType,
+    periodKey
+  }).lean()) as MissionOverrideDoc | null
+
+  if (override) {
+    return override
+  }
+
+  const legacyOverride = (await MissionOverrideModel.findOne({
+    schemaVersion: 2,
+    missionCellKey,
+    mechanicType,
+    periodKey
+  }).lean()) as MissionOverrideDoc | null
+
+  return legacyOverride
+}
+
+async function clearLegacyOverrideIfPresent(
+  missionCellKey: MissionCellKey,
+  mechanicType: MissionMechanicType,
+  periodKey: string
+) {
+  await MissionOverrideModel.deleteOne({
+    schemaVersion: 2,
+    missionCellKey,
+    mechanicType,
+    periodKey
+  })
+}
+
 async function getCurrentMissionInstances(): Promise<MissionInstanceDoc[]> {
   const periods = getCurrentIndiaPeriods()
 
   const instances = (await MissionInstanceModel.find({
-    schemaVersion: 2,
+    schemaVersion: MISSION_SCHEMA_VERSION,
     isActive: true,
     periodKey: { $in: [periods.daily.periodKey, periods.weekly.periodKey] }
   }).lean()) as unknown as MissionInstanceDoc[]
@@ -603,18 +676,9 @@ async function resetMissionInstanceState(missionInstanceId: Types.ObjectId) {
   ).map((boardId) => new Types.ObjectId(boardId))
 
   await Promise.all([
-    UserMissionProgressModel.deleteMany({
-      schemaVersion: 2,
-      missionInstanceId
-    }),
-    SharedMissionProgressModel.deleteMany({
-      schemaVersion: 2,
-      missionInstanceId
-    }),
-    MissionContributionModel.deleteMany({
-      schemaVersion: 2,
-      missionInstanceId
-    }),
+    UserMissionProgressModel.deleteMany({ missionInstanceId }),
+    SharedMissionProgressModel.deleteMany({ missionInstanceId }),
+    MissionContributionModel.deleteMany({ missionInstanceId }),
     LeaderboardPointEventModel.deleteMany({
       sourceType: "mission_completion",
       sourceId: missionSourceId
@@ -629,14 +693,44 @@ async function resetMissionInstanceState(missionInstanceId: Types.ObjectId) {
   }
 }
 
-async function generateMissionCell(missionCellKey: MissionCellKey, force = false) {
+async function resetLegacyCurrentMissionInstances() {
+  const periods = getCurrentIndiaPeriods()
+  const legacyInstances = (await MissionInstanceModel.find({
+    schemaVersion: 2,
+    isActive: true,
+    periodKey: { $in: [periods.daily.periodKey, periods.weekly.periodKey] }
+  }).lean()) as unknown as MissionInstanceDoc[]
+
+  if (legacyInstances.length === 0) {
+    return
+  }
+
+  for (const instance of legacyInstances) {
+    await resetMissionInstanceState(instance._id)
+  }
+
+  await MissionInstanceModel.updateMany(
+    {
+      schemaVersion: 2,
+      _id: { $in: legacyInstances.map((instance) => instance._id) }
+    },
+    { $set: { isActive: false } }
+  )
+}
+
+async function generateMissionCellMechanic(
+  missionCellKey: MissionCellKey,
+  mechanicType: MissionMechanicType,
+  force = false
+) {
   const config = getMissionCellConfig(missionCellKey)
   const period = getIndiaPeriod(config.cadence)
 
   await MissionInstanceModel.updateMany(
     {
-      schemaVersion: 2,
+      schemaVersion: MISSION_SCHEMA_VERSION,
       missionCellKey,
+      mechanicType,
       isActive: true,
       periodKey: { $ne: period.periodKey }
     },
@@ -644,8 +738,9 @@ async function generateMissionCell(missionCellKey: MissionCellKey, force = false
   )
 
   const existing = (await MissionInstanceModel.findOne({
-    schemaVersion: 2,
+    schemaVersion: MISSION_SCHEMA_VERSION,
     missionCellKey,
+    mechanicType,
     periodKey: period.periodKey,
     isActive: true
   }).lean()) as MissionInstanceDoc | null
@@ -659,19 +754,8 @@ async function generateMissionCell(missionCellKey: MissionCellKey, force = false
     await MissionInstanceModel.deleteOne({ _id: existing._id })
   }
 
-  const override = await MissionOverrideModel.findOne({
-    schemaVersion: 2,
-    missionCellKey,
-    periodKey: period.periodKey
-  }).lean() as {
-    mechanicType: MissionMechanicType
-    targetKeys: string[]
-    goalUnits: number
-    rewardPoints: number
-  } | null
-
+  const override = await findMissionOverride(missionCellKey, mechanicType, period.periodKey)
   const selectionMode = override ? "admin" : "random"
-  const mechanicType = override?.mechanicType ?? config.defaultMechanicType
   const rawTargetKeys = override?.targetKeys ?? []
   const targets =
     selectionMode === "random"
@@ -698,17 +782,17 @@ async function generateMissionCell(missionCellKey: MissionCellKey, force = false
   const rewardPoints = override?.rewardPoints ?? config.defaultRewardPointsByMechanic[mechanicType]
 
   const instance = await MissionInstanceModel.create({
-    schemaVersion: 2,
+    schemaVersion: MISSION_SCHEMA_VERSION,
     cadence: config.cadence,
     missionCellKey,
-    slotKey: missionCellKey,
+    slotKey: buildMissionSlotKey(missionCellKey, mechanicType),
     missionKind: config.missionKind,
     mechanicType,
     periodKey: period.periodKey,
     startsAt: period.startsAt,
     endsAt: period.endsAt,
     timezone: period.timezone,
-    title: config.label,
+    title: buildMissionTitle(config, mechanicType),
     description: config.descriptionByMechanic[mechanicType],
     goalUnits,
     rewardRouting: config.rewardRouting,
@@ -729,10 +813,11 @@ export async function ensureCurrentMissionInstances(options: {
   force?: boolean
 } = {}) {
   await connectToDatabase()
+  await resetLegacyCurrentMissionInstances()
 
   const summary = await getCatalogSummary()
 
-  if (summary.trackCount === 0) {
+  if (summary.trackCount === 0 || summary.albumCount === 0) {
     return []
   }
 
@@ -741,7 +826,11 @@ export async function ensureCurrentMissionInstances(options: {
   )
 
   const instances = await Promise.all(
-    missionCellKeys.map((missionCellKey) => generateMissionCell(missionCellKey, options.force ?? false))
+    missionCellKeys.flatMap((missionCellKey) =>
+      missionMechanicOrder.map((mechanicType) =>
+        generateMissionCellMechanic(missionCellKey, mechanicType, options.force ?? false)
+      )
+    )
   )
 
   return instances.filter((instance): instance is MissionInstanceDoc => Boolean(instance))
@@ -749,7 +838,7 @@ export async function ensureCurrentMissionInstances(options: {
 
 async function getMissionProgressMap(userId: Types.ObjectId, instances: MissionInstanceDoc[]) {
   const progressDocs = (await UserMissionProgressModel.find({
-    schemaVersion: 2,
+    schemaVersion: MISSION_SCHEMA_VERSION,
     userId,
     missionInstanceId: { $in: instances.map((instance) => instance._id) }
   }).lean()) as unknown as UserMissionProgressDoc[]
@@ -761,7 +850,7 @@ async function getSharedProgressMap(stateKey: string | undefined, instances: Mis
   const scopeKeys = [INDIA_SCOPE_KEY, ...(stateKey ? [stateKey] : [])]
 
   const progressDocs = (await SharedMissionProgressModel.find({
-    schemaVersion: 2,
+    schemaVersion: MISSION_SCHEMA_VERSION,
     missionInstanceId: { $in: instances.map((instance) => instance._id) },
     scopeKey: { $in: scopeKeys }
   }).lean()) as unknown as SharedMissionProgressDoc[]
@@ -771,7 +860,7 @@ async function getSharedProgressMap(stateKey: string | undefined, instances: Mis
 
 async function getMissionContributionMap(userId: Types.ObjectId, instances: MissionInstanceDoc[]) {
   const docs = (await MissionContributionModel.find({
-    schemaVersion: 2,
+    schemaVersion: MISSION_SCHEMA_VERSION,
     userId,
     missionInstanceId: { $in: instances.map((instance) => instance._id) }
   }).lean()) as unknown as MissionContributionDoc[]
@@ -1235,7 +1324,7 @@ async function awardPersonalMissionCompletion(
 
 async function awardIndiaMissionContributors(mission: MissionInstanceDoc, completedAt: Date) {
   const contributions = (await MissionContributionModel.find({
-    schemaVersion: 2,
+    schemaVersion: MISSION_SCHEMA_VERSION,
     missionInstanceId: mission._id,
     contributionUnits: { $gt: 0 },
     rewardAwardedAt: null,
@@ -1320,7 +1409,7 @@ async function awardIndiaMissionContributors(mission: MissionInstanceDoc, comple
 
     await MissionContributionModel.updateMany(
       {
-        schemaVersion: 2,
+        schemaVersion: MISSION_SCHEMA_VERSION,
         missionInstanceId: mission._id,
         rewardAwardedAt: null,
         qualifiedAt: { $lte: completedAt }
@@ -1353,7 +1442,7 @@ async function recomputeIndividualMissionProgress(
 ) {
   const events = await getRelevantStreamEvents({ userId: user._id }, mission.startsAt, mission.endsAt)
   const existingProgress = (await UserMissionProgressModel.findOne({
-    schemaVersion: 2,
+    schemaVersion: MISSION_SCHEMA_VERSION,
     missionInstanceId: mission._id,
     userId: user._id
   })) as UserMissionProgressDoc | null
@@ -1395,7 +1484,7 @@ async function recomputeIndividualMissionProgress(
 
   const progress = await UserMissionProgressModel.findOneAndUpdate(
     {
-      schemaVersion: 2,
+      schemaVersion: MISSION_SCHEMA_VERSION,
       missionInstanceId: mission._id,
       userId: user._id
     },
@@ -1433,7 +1522,7 @@ async function recomputeStateMissionProgress(
   const stateKey = buildStateKey(stateSource)
   const stateEvents = await getRelevantStreamEvents({ stateKey }, mission.startsAt, mission.endsAt)
   const existingSharedProgress = (await SharedMissionProgressModel.findOne({
-    schemaVersion: 2,
+    schemaVersion: MISSION_SCHEMA_VERSION,
     missionInstanceId: mission._id,
     scopeType: "state",
     scopeKey: stateKey
@@ -1507,7 +1596,7 @@ async function recomputeStateMissionProgress(
       : undefined
   const sharedProgress = await SharedMissionProgressModel.findOneAndUpdate(
     {
-      schemaVersion: 2,
+      schemaVersion: MISSION_SCHEMA_VERSION,
       missionInstanceId: mission._id,
       scopeType: "state",
       scopeKey: stateKey
@@ -1557,7 +1646,7 @@ async function recomputeStateMissionProgress(
 
   await MissionContributionModel.findOneAndUpdate(
     {
-      schemaVersion: 2,
+      schemaVersion: MISSION_SCHEMA_VERSION,
       missionInstanceId: mission._id,
       userId: user._id
     },
@@ -1618,7 +1707,7 @@ async function recomputeIndiaMissionProgress(
 ) {
   const indiaEvents = await getRelevantStreamEvents({}, mission.startsAt, mission.endsAt)
   const existingSharedProgress = (await SharedMissionProgressModel.findOne({
-    schemaVersion: 2,
+    schemaVersion: MISSION_SCHEMA_VERSION,
     missionInstanceId: mission._id,
     scopeType: "india",
     scopeKey: INDIA_SCOPE_KEY
@@ -1693,7 +1782,7 @@ async function recomputeIndiaMissionProgress(
 
   await SharedMissionProgressModel.findOneAndUpdate(
     {
-      schemaVersion: 2,
+      schemaVersion: MISSION_SCHEMA_VERSION,
       missionInstanceId: mission._id,
       scopeType: "india",
       scopeKey: INDIA_SCOPE_KEY
@@ -1741,7 +1830,7 @@ async function recomputeIndiaMissionProgress(
 
   await MissionContributionModel.findOneAndUpdate(
     {
-      schemaVersion: 2,
+      schemaVersion: MISSION_SCHEMA_VERSION,
       missionInstanceId: mission._id,
       userId: user._id
     },
@@ -1894,19 +1983,14 @@ function buildAdminMissionCard(
 
 async function buildNextMissionPlan(
   missionCellKey: MissionCellKey,
+  mechanicType: MissionMechanicType,
   trackOptionMap: Map<string, CatalogOption>,
   albumOptionMap: Map<string, CatalogOption>,
-  override?: {
-    mechanicType: MissionMechanicType
-    targetKeys: string[]
-    goalUnits: number
-    rewardPoints: number
-  } | null
-): Promise<MissionAdminState["cells"][number]["nextMission"]> {
+  override?: AdminMissionOverrideView | null
+): Promise<AdminMissionPlanView | null> {
   const config = getMissionCellConfig(missionCellKey)
   const period = getPlanningPeriodForCadence(config.cadence)
   const selectionMode: "admin" | "random" = override ? "admin" : "random"
-  const mechanicType = override?.mechanicType ?? config.defaultMechanicType
   const targets = await buildMissionTargets(
     missionCellKey,
     mechanicType,
@@ -1953,14 +2037,14 @@ export async function getMissionPageState(): Promise<MissionPageState> {
 
   const session = await getSessionUser()
   const user = await getCurrentUserRecord()
-  const [missions, summary, lastfmConnection, streamPointValue] = await Promise.all([
+  const [missions, summary, trackerConnection, streamPointValue] = await Promise.all([
     buildMissionCardsForUser(user),
     getCatalogSummary(),
-    TrackerConnectionModel.findOne({
-      userId: user._id,
-      provider: "lastfm"
-    }).lean() as Promise<
+    TrackerConnectionModel.findOne({ userId: user._id })
+      .sort({ updatedAt: -1 })
+      .lean() as Promise<
       | {
+          provider: "lastfm" | "musicat" | "statsfm"
           username: string
           verificationStatus: "pending" | "verified" | "failed"
           lastSuccessfulSyncAt?: Date
@@ -1973,24 +2057,25 @@ export async function getMissionPageState(): Promise<MissionPageState> {
   let verificationBlockedReason: string | undefined
 
   if (!session.isAuthenticated) {
-    verificationBlockedReason = "Sign in or join now before connecting Last.fm and verifying missions."
+    verificationBlockedReason = "Sign in first to connect your music app and join missions."
   } else if (!user.region?.state) {
-    verificationBlockedReason = "Confirm your state before leaderboard points and shared state missions can count."
-  } else if (summary.trackCount === 0) {
-    verificationBlockedReason = "Sync the BTS-family catalog first so missions can be generated."
-  } else if (!lastfmConnection) {
-    verificationBlockedReason = "Connect your Last.fm username to verify BTS-family streams."
+    verificationBlockedReason = "Add your state so your streams and state missions can count."
+  } else if (summary.trackCount === 0 || summary.albumCount === 0) {
+    verificationBlockedReason = "Missions are being prepared right now. Please check back soon."
+  } else if (!trackerConnection) {
+    verificationBlockedReason = "Connect Last.fm, stats.fm, or Musicat to start counting your streams."
   }
 
   return {
     daily: missions.filter((mission) => mission.cadence === "daily"),
     weekly: missions.filter((mission) => mission.cadence === "weekly"),
     isAuthenticated: session.isAuthenticated,
-    lastfmConnection: lastfmConnection
+    trackerConnection: trackerConnection
       ? {
-          username: lastfmConnection.username,
-          verificationStatus: lastfmConnection.verificationStatus,
-          lastSuccessfulSyncAt: lastfmConnection.lastSuccessfulSyncAt?.toISOString()
+          provider: trackerConnection.provider,
+          username: trackerConnection.username,
+          verificationStatus: trackerConnection.verificationStatus,
+          lastSuccessfulSyncAt: trackerConnection.lastSuccessfulSyncAt?.toISOString()
         }
       : null,
     regionConfirmed: Boolean(user.region?.state),
@@ -2039,21 +2124,12 @@ export async function getMissionAdminState(): Promise<MissionAdminState> {
       listAlbumOptions(),
       getCatalogSummary(),
       MissionOverrideModel.find({
-        schemaVersion: 2,
+        schemaVersion: { $in: [2, MISSION_SCHEMA_VERSION] },
         periodKey: { $in: [nextPeriods.daily.periodKey, nextPeriods.weekly.periodKey] }
-      }).lean() as unknown as Promise<
-        Array<{
-          missionCellKey: MissionCellKey
-          periodKey: string
-          mechanicType: MissionMechanicType
-          targetKeys: string[]
-          goalUnits: number
-          rewardPoints: number
-        }>
-      >,
+      }).lean() as unknown as Promise<MissionOverrideDoc[]>,
       getStreamPointValue(),
       getLeaderboardStatusSummary(),
-      MissionInstanceModel.findOne({ schemaVersion: 2 })
+      MissionInstanceModel.findOne({ schemaVersion: MISSION_SCHEMA_VERSION })
         .sort({ updatedAt: -1 })
         .select({ updatedAt: 1 })
         .lean() as unknown as Promise<{ updatedAt?: Date } | null>,
@@ -2062,27 +2138,31 @@ export async function getMissionAdminState(): Promise<MissionAdminState> {
 
   const trackOptionMap = new Map(trackOptions.map((option) => [option.key, option] as const))
   const albumOptionMap = new Map(albumOptions.map((option) => [option.key, option] as const))
-  const overrideMap = new Map<
-    MissionCellKey,
-    {
-      missionCellKey: MissionCellKey
-      periodKey: string
-      mechanicType: MissionMechanicType
-      targetKeys: string[]
-      goalUnits: number
-      rewardPoints: number
-    }
-  >(overrides.map((override) => [override.missionCellKey, override] as const))
-  const stateBreakdownMap = new Map<string, NonNullable<MissionAdminState["cells"][number]["liveStateBreakdown"]>>()
+  const overrideMap = new Map<string, MissionOverrideDoc>()
+
+  for (const override of overrides
+    .filter((candidate) => candidate.schemaVersion === 2)
+    .sort((left, right) => left.periodKey.localeCompare(right.periodKey))) {
+    overrideMap.set(buildMissionSlotKey(override.missionCellKey, override.mechanicType), override)
+  }
+
+  for (const override of overrides.filter((candidate) => candidate.schemaVersion === MISSION_SCHEMA_VERSION)) {
+    overrideMap.set(buildMissionSlotKey(override.missionCellKey, override.mechanicType), override)
+  }
+
+  const stateBreakdownMap = new Map<
+    string,
+    MissionAdminState["cells"][number]["liveStateBreakdownByMechanic"]["track_streams"]
+  >()
   const sharedProgressDocs = (await SharedMissionProgressModel.find({
-    schemaVersion: 2,
+    schemaVersion: MISSION_SCHEMA_VERSION,
     missionInstanceId: {
       $in: currentInstances
         .filter((instance) => instance.missionKind !== "individual_personal")
         .map((instance) => instance._id)
     }
   }).lean()) as unknown as SharedMissionProgressDoc[]
-  const missionMap = new Map<MissionCellKey, MissionCard>()
+  const missionMap = new Map<string, MissionCard>()
   const indiaProgressMap = new Map(
     sharedProgressDocs
       .filter((doc) => doc.scopeKey === INDIA_SCOPE_KEY)
@@ -2090,16 +2170,15 @@ export async function getMissionAdminState(): Promise<MissionAdminState> {
   )
 
   for (const instance of currentInstances) {
+    const slotKey = buildMissionSlotKey(instance.missionCellKey, instance.mechanicType)
+
     if (instance.missionKind === "individual_personal") {
-      missionMap.set(instance.missionCellKey, buildAdminMissionCard(instance, null))
+      missionMap.set(slotKey, buildAdminMissionCard(instance, null))
       continue
     }
 
     if (instance.missionKind === "india_shared") {
-      missionMap.set(
-        instance.missionCellKey,
-        buildAdminMissionCard(instance, indiaProgressMap.get(String(instance._id)) ?? null)
-      )
+      missionMap.set(slotKey, buildAdminMissionCard(instance, indiaProgressMap.get(String(instance._id)) ?? null))
       continue
     }
 
@@ -2118,7 +2197,7 @@ export async function getMissionAdminState(): Promise<MissionAdminState> {
       })
 
     stateBreakdownMap.set(
-      instance.missionCellKey,
+      slotKey,
       docs.slice(0, 8).map((doc) => ({
         stateKey: doc.scopeKey,
         stateLabel: doc.scopeLabel,
@@ -2128,19 +2207,50 @@ export async function getMissionAdminState(): Promise<MissionAdminState> {
       }))
     )
 
-    missionMap.set(instance.missionCellKey, buildAdminMissionCard(instance, docs[0] ?? null))
+    missionMap.set(slotKey, buildAdminMissionCard(instance, docs[0] ?? null))
   }
 
   return {
     cells: await Promise.all(missionCellOrder.map(async (missionCellKey) => {
       const config = getMissionCellConfig(missionCellKey)
-      const liveMission = missionMap.get(missionCellKey) ?? null
-      const nextOverride = overrideMap.get(missionCellKey)
-      const nextMission = await buildNextMissionPlan(
-        missionCellKey,
-        trackOptionMap,
-        albumOptionMap,
-        nextOverride ?? null
+      const nextMissionsByMechanic = await Promise.all(
+        missionMechanicOrder.map(async (mechanicType) => {
+          const override = overrideMap.get(buildMissionSlotKey(missionCellKey, mechanicType))
+
+          return [
+            mechanicType,
+            await buildNextMissionPlan(
+              missionCellKey,
+              mechanicType,
+              trackOptionMap,
+              albumOptionMap,
+              override
+                ? {
+                    mechanicType: override.mechanicType,
+                    targetKeys: override.targetKeys,
+                    goalUnits: override.goalUnits,
+                    rewardPoints: override.rewardPoints
+                  }
+                : null
+            )
+          ] as const
+        })
+      )
+      const nextMissions = Object.fromEntries(nextMissionsByMechanic) as AdminMissionCellView["nextMissions"]
+      const nextOverrides = buildMissionMechanicMap((mechanicType) => {
+        const override = overrideMap.get(buildMissionSlotKey(missionCellKey, mechanicType))
+
+        return override
+          ? {
+              mechanicType: override.mechanicType,
+              targetKeys: override.targetKeys,
+              goalUnits: override.goalUnits,
+              rewardPoints: override.rewardPoints
+            }
+          : null
+      })
+      const liveMissions = buildMissionMechanicMap(
+        (mechanicType) => missionMap.get(buildMissionSlotKey(missionCellKey, mechanicType)) ?? null
       )
 
       return {
@@ -2155,20 +2265,13 @@ export async function getMissionAdminState(): Promise<MissionAdminState> {
         defaultGoalUnitsByMechanic: config.defaultGoalUnitsByMechanic,
         trackOptions,
         albumOptions,
-        liveMission,
+        liveMissions,
         nextPeriodKey: nextPeriods[config.cadence].periodKey,
-        nextMission,
-        nextOverride: nextOverride
-          ? {
-              mechanicType: nextOverride.mechanicType,
-              targetKeys: nextOverride.targetKeys,
-              goalUnits: nextOverride.goalUnits,
-              rewardPoints: nextOverride.rewardPoints
-            }
-          : null,
-        liveAggregateProgress: liveMission?.aggregateProgress,
-        contributorCount: liveMission?.contributorCount,
-        liveStateBreakdown: stateBreakdownMap.get(missionCellKey)
+        nextMissions,
+        nextOverrides,
+        liveStateBreakdownByMechanic: buildMissionMechanicMap(
+          (mechanicType) => stateBreakdownMap.get(buildMissionSlotKey(missionCellKey, mechanicType)) ?? []
+        )
       }
     })),
     catalogSummary: summary,
@@ -2260,14 +2363,15 @@ export async function upsertMissionOverrideForNextPeriod(input: {
 
   await MissionOverrideModel.findOneAndUpdate(
     {
-      schemaVersion: 2,
+      schemaVersion: MISSION_SCHEMA_VERSION,
       missionCellKey: input.missionCellKey,
+      mechanicType: input.mechanicType,
       periodKey: period.periodKey
     },
     {
       $set: {
-        schemaVersion: 2,
-        slotKey: input.missionCellKey,
+        schemaVersion: MISSION_SCHEMA_VERSION,
+        slotKey: buildMissionSlotKey(input.missionCellKey, input.mechanicType),
         cadence: config.cadence,
         mechanicType: input.mechanicType,
         targetKeys,
@@ -2286,10 +2390,15 @@ export async function upsertMissionOverrideForNextPeriod(input: {
     }
   )
 
+  await clearLegacyOverrideIfPresent(input.missionCellKey, input.mechanicType, period.periodKey)
+
   return getMissionAdminState()
 }
 
-export async function clearMissionOverrideForNextPeriod(missionCellKey: MissionCellKey) {
+export async function clearMissionOverrideForNextPeriod(
+  missionCellKey: MissionCellKey,
+  mechanicType: MissionMechanicType
+) {
   await connectToDatabase()
 
   await requireAdminUserRecord()
@@ -2297,10 +2406,12 @@ export async function clearMissionOverrideForNextPeriod(missionCellKey: MissionC
   const period = getPlanningPeriodForCadence(config.cadence)
 
   await MissionOverrideModel.deleteOne({
-    schemaVersion: 2,
+    schemaVersion: MISSION_SCHEMA_VERSION,
     missionCellKey,
+    mechanicType,
     periodKey: period.periodKey
   })
+  await clearLegacyOverrideIfPresent(missionCellKey, mechanicType, period.periodKey)
 
   return getMissionAdminState()
 }

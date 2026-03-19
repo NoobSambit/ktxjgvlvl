@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server"
 import { z } from "zod"
 import { syncStreamingActivity } from "@/modules/streaming/service"
+import { TRACKER_PROVIDERS } from "@/platform/integrations/trackers/base"
 
 const syncSchema = z.object({
-  provider: z.enum(["lastfm"]),
+  provider: z.enum(TRACKER_PROVIDERS),
   username: z.string().min(2)
 })
 

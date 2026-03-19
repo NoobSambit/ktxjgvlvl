@@ -7,7 +7,7 @@ export default function SignUpPage() {
   const steps = [
     { icon: Sparkles, title: "Choose a username", desc: "Your identity on leaderboards and project pages" },
     { icon: MapPin, title: "Confirm your state", desc: "State is required for scoring. City is optional." },
-    { icon: Music4, title: "Connect tracker", desc: "Link Last.fm to verify your streams" },
+    { icon: Music4, title: "Connect tracker", desc: "Link Last.fm, stats.fm, or Musicat to verify your streams" },
     { icon: Trophy, title: "Join the race", desc: "Compete on individual and state leaderboards" }
   ]
 

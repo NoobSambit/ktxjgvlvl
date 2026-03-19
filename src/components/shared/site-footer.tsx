@@ -19,8 +19,8 @@ export function SiteFooter() {
         <div className="absolute -bottom-20 -right-20 w-40 h-40 bg-gradient-to-br from-[hsl(25,90%,55%)]/15 to-transparent rounded-full blur-3xl" />
       </div>
       
-      <div className="container relative py-10">
-        <div className="grid gap-8 lg:grid-cols-[1.5fr_1fr]">
+      <div className="site-shell relative py-7 sm:py-10">
+        <div className="grid gap-6 sm:gap-8 lg:grid-cols-[1.5fr_1fr]">
           <div className="space-y-4">
             <div className="flex items-center gap-3">
               <div className="rounded-lg bg-gradient-to-br from-[hsl(265,70%,65%)] to-[hsl(320,65%,55%)] p-2 text-white">
@@ -62,7 +62,7 @@ export function SiteFooter() {
           </div>
         </div>
         
-        <div className="mt-8 pt-6 border-t border-white/10 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-[hsl(265,15%,50%)]">
+        <div className="mt-6 flex flex-col items-center justify-between gap-4 border-t border-white/10 pt-5 text-xs text-[hsl(265,15%,50%)] sm:mt-8 sm:flex-row sm:pt-6">
           <p>© 2024 IndiaForBTS. All rights reserved.</p>
           <div className="flex items-center gap-4">
             <span className="flex items-center gap-1.5">

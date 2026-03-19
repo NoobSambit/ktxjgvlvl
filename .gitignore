@@ -1,7 +1,11 @@
 .next
+.next_*
+.open-next
 node_modules
 .env
 .env.local
+.dev.vars
+.wrangler
 coverage
 dist
 npm-debug.log*

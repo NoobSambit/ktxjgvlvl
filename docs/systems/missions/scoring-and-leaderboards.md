@@ -25,7 +25,8 @@ Primary implementation:
 
 Current value:
 
-- `1 verified BTS-family stream = 1 point`
+- `verified BTS-family stream = platform streamPointValue`
+- The current default is `1 point` per verified stream.
 
 Applied boards:
 
@@ -49,6 +50,8 @@ Important design detail:
 Important mechanic detail:
 
 - Verified streams always keep their normal leaderboard value.
+- Daily and weekly mission rewards are period-specific.
+- This means the weekly board is not guaranteed to be greater than or equal to the daily board for the same user or state.
 - Album missions do not change per-stream scoring. They only add mission-completion reward points after the assigned album objective is completed from verified track events.
 - Song quests and album quests now use separate default completion reward values, so reward tuning is mechanic-aware even when admin has not set an override.
 
@@ -176,7 +179,7 @@ The current default cell mapping is:
   - 5 random albums
   - shared goal `50`
 
-This gives a live mix of 3 streaming missions and 3 album-completion missions by default.
+This gives a live mix of 6 streaming missions and 6 album-completion missions by default.
 
 ## Mission Page Read Model
 

@@ -16,6 +16,7 @@ import {
 import { materializeLeaderboards, recordLeaderboardPointEvents } from "@/modules/leaderboards/service"
 import { getEffectivePlaceFromRegion, getStateScopeSource } from "@/modules/locations/service"
 import { recomputeMissionProgressForUser, ensureCurrentMissionInstances } from "@/modules/missions/service"
+import { getStreamPointValue } from "@/modules/platform-settings/service"
 import {
   normalizeAlbumName,
   namesRoughlyMatch,
@@ -23,6 +24,7 @@ import {
   normalizeTrackName
 } from "@/modules/streaming/normalization"
 import type { StreamingSyncSummary } from "@/modules/streaming/types"
+import type { TrackerProvider } from "@/platform/integrations/trackers/base"
 
 type CatalogTrackMatcher = {
   _id: Types.ObjectId
@@ -37,7 +39,7 @@ type CatalogTrackMatcher = {
 type TrackerConnectionDoc = {
   _id: Types.ObjectId
   userId: Types.ObjectId
-  provider: "lastfm"
+  provider: TrackerProvider
   username: string
   verificationStatus: "pending" | "verified" | "failed"
   lastCheckpoint?: string
@@ -129,6 +131,7 @@ function buildStreamPointEvents(input: {
   connection: TrackerConnectionDoc
   playedAt: Date
   sourceId: string
+  streamPointValue: number
 }) {
   const stateSource = getStateScopeSource(input.user.region)
 
@@ -149,7 +152,7 @@ function buildStreamPointEvents(input: {
       competitorType: "user" as const,
       competitorKey: String(input.user._id),
       displayName: input.user.displayName,
-      points: 1,
+      points: input.streamPointValue,
       sourceType: "verified_stream" as const,
       sourceId: input.sourceId,
       dedupeKey: `stream:${input.sourceId}:individual:${daily.periodKey}`,
@@ -164,7 +167,7 @@ function buildStreamPointEvents(input: {
       competitorType: "user" as const,
       competitorKey: String(input.user._id),
       displayName: input.user.displayName,
-      points: 1,
+      points: input.streamPointValue,
       sourceType: "verified_stream" as const,
       sourceId: input.sourceId,
       dedupeKey: `stream:${input.sourceId}:individual:${weekly.periodKey}`,
@@ -179,7 +182,7 @@ function buildStreamPointEvents(input: {
       competitorType: "state" as const,
       competitorKey: stateKey,
       displayName: input.user.region.state,
-      points: 1,
+      points: input.streamPointValue,
       sourceType: "verified_stream" as const,
       sourceId: input.sourceId,
       dedupeKey: `stream:${input.sourceId}:state:${daily.periodKey}`,
@@ -194,7 +197,7 @@ function buildStreamPointEvents(input: {
       competitorType: "state" as const,
       competitorKey: stateKey,
       displayName: input.user.region.state,
-      points: 1,
+      points: input.streamPointValue,
       sourceType: "verified_stream" as const,
       sourceId: input.sourceId,
       dedupeKey: `stream:${input.sourceId}:state:${weekly.periodKey}`,
@@ -225,9 +228,10 @@ async function syncTrackerConnectionActivity(
     checkpoint: connection.lastCheckpoint
   })
   const matchers = await loadBtsTrackMatchers()
+  const streamPointValue = await getStreamPointValue()
+  const streamWriteOperations: Parameters<typeof StreamEventModel.bulkWrite>[0] = []
   const pointEvents: Parameters<typeof recordLeaderboardPointEvents>[0] = []
   const locationActivityEvents: ReturnType<typeof buildLocationActivityEvents> = []
-  let syncedEvents = 0
   let scoredEvents = 0
 
   for (const event of trackerResult.events) {
@@ -242,42 +246,38 @@ async function syncTrackerConnectionActivity(
     const stateKey = stateSource ? buildStateKey(stateSource) : undefined
     const effectivePlace = getEffectivePlaceFromRegion(user.region)
 
-    const result = await StreamEventModel.updateOne(
-      {
-        provider: connection.provider,
-        providerUserKey: event.providerUserKey,
-        providerEventKey: event.providerEventKey
-      },
-      {
-        $setOnInsert: {
-          userId: user._id,
+    streamWriteOperations.push({
+      updateOne: {
+        filter: {
           provider: connection.provider,
           providerUserKey: event.providerUserKey,
-          providerEventKey: event.providerEventKey,
-          playedAt,
-          artistKey: event.artistKey,
-          trackKey: event.trackKey,
-          albumKey: event.albumKey,
-          normalizedTrackKey: normalizeTrackName(event.trackName),
-          normalizedArtistKey: normalizeArtistName(event.artistName),
-          catalogTrackId: matchedTrack?._id,
-          catalogTrackSpotifyId: matchedTrack?.spotifyId,
-          isBTSFamily: Boolean(matchedTrack),
-          stateKey,
-          stateLabel: user.region?.state,
-          placeKey: effectivePlace?.placeKey,
-          placeLabel: effectivePlace?.placeLabel,
-          rawRef: event.rawRef
-        }
-      },
-      {
+          providerEventKey: event.providerEventKey
+        },
+        update: {
+          $setOnInsert: {
+            userId: user._id,
+            provider: connection.provider,
+            providerUserKey: event.providerUserKey,
+            providerEventKey: event.providerEventKey,
+            playedAt,
+            artistKey: event.artistKey,
+            trackKey: event.trackKey,
+            albumKey: event.albumKey,
+            normalizedTrackKey: normalizeTrackName(event.trackName),
+            normalizedArtistKey: normalizeArtistName(event.artistName),
+            catalogTrackId: matchedTrack?._id,
+            catalogTrackSpotifyId: matchedTrack?.spotifyId,
+            isBTSFamily: Boolean(matchedTrack),
+            stateKey,
+            stateLabel: user.region?.state,
+            placeKey: effectivePlace?.placeKey,
+            placeLabel: effectivePlace?.placeLabel,
+            rawRef: event.rawRef
+          }
+        },
         upsert: true
       }
-    )
-
-    if (result.upsertedCount > 0) {
-      syncedEvents += 1
-    }
+    })
 
     if (!matchedTrack) {
       continue
@@ -288,7 +288,8 @@ async function syncTrackerConnectionActivity(
         user,
         connection,
         playedAt,
-        sourceId: `${connection.provider}:${event.providerUserKey}:${event.providerEventKey}`
+        sourceId: `${connection.provider}:${event.providerUserKey}:${event.providerEventKey}`,
+        streamPointValue
       })
     )
 
@@ -296,7 +297,7 @@ async function syncTrackerConnectionActivity(
       locationActivityEvents.push(
         ...buildLocationActivityEvents({
           occurredAt: playedAt,
-          points: 1,
+          points: streamPointValue,
           sourceType: "verified_stream",
           sourceId: `${connection.provider}:${event.providerUserKey}:${event.providerEventKey}`,
           userId: user._id,
@@ -308,6 +309,12 @@ async function syncTrackerConnectionActivity(
       )
     }
   }
+
+  const streamWriteResult =
+    streamWriteOperations.length > 0
+      ? await StreamEventModel.bulkWrite(streamWriteOperations, { ordered: false })
+      : null
+  const syncedEvents = streamWriteResult?.upsertedCount ?? 0
 
   if (pointEvents.length > 0) {
     const pointResult = await recordLeaderboardPointEvents(pointEvents)
@@ -349,15 +356,27 @@ export async function syncVerifiedTrackerConnections() {
   await connectToDatabase()
 
   const connections = (await TrackerConnectionModel.find({
-    provider: "lastfm",
     verificationStatus: "verified"
-  }).lean()) as unknown as TrackerConnectionDoc[]
+  })
+    .sort({ updatedAt: -1 })
+    .lean()) as unknown as TrackerConnectionDoc[]
+  const seenUsers = new Set<string>()
+  const uniqueConnections = connections.filter((connection) => {
+    const userId = String(connection.userId)
+
+    if (seenUsers.has(userId)) {
+      return false
+    }
+
+    seenUsers.add(userId)
+    return true
+  })
 
   let syncedEvents = 0
   let scoredEvents = 0
   let failedUsers = 0
 
-  for (const connection of connections) {
+  for (const connection of uniqueConnections) {
     try {
       const summary = await syncTrackerConnectionActivity(connection, { materializeAfter: false })
       syncedEvents += summary.syncedEvents
@@ -376,7 +395,7 @@ export async function syncVerifiedTrackerConnections() {
   await materializeLocationActivity()
 
   return {
-    syncedUsers: connections.length,
+    syncedUsers: uniqueConnections.length,
     syncedEvents,
     scoredEvents,
     failedUsers
@@ -389,18 +408,19 @@ export async function syncCurrentUserTrackerActivity() {
   const user = await requireAuthenticatedUserRecord()
   const connection = (await TrackerConnectionModel.findOne({
     userId: user._id,
-    provider: "lastfm",
     verificationStatus: "verified"
-  }).lean()) as TrackerConnectionDoc | null
+  })
+    .sort({ updatedAt: -1 })
+    .lean()) as TrackerConnectionDoc | null
 
   if (!connection) {
-    throw new Error("Connect a verified Last.fm username before syncing streaming activity.")
+    throw new Error("Connect a verified tracker username before syncing streaming activity.")
   }
 
   return syncTrackerConnectionActivity(connection)
 }
 
-export async function syncStreamingActivity(provider: "lastfm" | "musicat" | "statsfm", username: string) {
+export async function syncStreamingActivity(provider: TrackerProvider, username: string) {
   const adapter = getTrackerAdapter(provider)
 
   if (!adapter) {
