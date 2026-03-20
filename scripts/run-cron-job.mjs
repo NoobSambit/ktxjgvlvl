@@ -1,5 +1,6 @@
 import fs from "node:fs"
 import path from "node:path"
+import mongoose from "mongoose"
 
 function loadEnvFile(filename) {
   const envPath = path.resolve(process.cwd(), filename)
@@ -85,16 +86,22 @@ console.log(
   )
 )
 
-const result = await runJob(jobKey, { force })
+try {
+  const result = await runJob(jobKey, { force })
 
-console.log(
-  JSON.stringify(
-    {
-      completedAt: new Date().toISOString(),
-      durationMs: Date.now() - startedAt.getTime(),
-      result
-    },
-    null,
-    2
+  console.log(
+    JSON.stringify(
+      {
+        completedAt: new Date().toISOString(),
+        durationMs: Date.now() - startedAt.getTime(),
+        result
+      },
+      null,
+      2
+    )
   )
-)
+} finally {
+  if (mongoose.connection.readyState !== 0) {
+    await mongoose.disconnect()
+  }
+}
