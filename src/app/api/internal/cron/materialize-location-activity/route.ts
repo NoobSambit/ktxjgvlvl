@@ -1,13 +1,12 @@
-import { NextResponse } from "next/server"
-import { assertCronAuthorized } from "@/platform/auth/cron"
 import { runJob } from "@/platform/jobs/cron"
+import { createCronRouteHandler } from "@/platform/http/cron-route"
 import { jobKeys } from "@/platform/queues/job-types"
 
-export async function POST(request: Request) {
-  try {
-    assertCronAuthorized(request)
-    return NextResponse.json(await runJob(jobKeys.materializeLocationActivity))
-  } catch (error) {
-    return NextResponse.json({ error: (error as Error).message }, { status: 401 })
-  }
-}
+export const runtime = "nodejs"
+export const dynamic = "force-dynamic"
+export const maxDuration = 300
+
+const handler = createCronRouteHandler(async () => runJob(jobKeys.materializeLocationActivity))
+
+export const GET = handler
+export const POST = handler

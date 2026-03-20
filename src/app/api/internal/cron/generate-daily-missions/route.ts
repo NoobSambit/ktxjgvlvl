@@ -1,7 +1,10 @@
-import { NextResponse } from "next/server"
-import { assertCronAuthorized } from "@/platform/auth/cron"
 import { runJob } from "@/platform/jobs/cron"
+import { createCronRouteHandler } from "@/platform/http/cron-route"
 import { jobKeys } from "@/platform/queues/job-types"
+
+export const runtime = "nodejs"
+export const dynamic = "force-dynamic"
+export const maxDuration = 300
 
 function parseForceValue(value: unknown) {
   return value === true || value === 1 || value === "1" || value === "true"
@@ -23,12 +26,10 @@ async function readForceFlag(request: Request) {
   }
 }
 
-export async function POST(request: Request) {
-  try {
-    assertCronAuthorized(request)
-    const force = await readForceFlag(request)
-    return NextResponse.json(await runJob(jobKeys.generateDailyMissions, { force }))
-  } catch (error) {
-    return NextResponse.json({ error: (error as Error).message }, { status: 401 })
-  }
-}
+const handler = createCronRouteHandler(async (request: Request) => {
+  const force = await readForceFlag(request)
+  return runJob(jobKeys.generateDailyMissions, { force })
+})
+
+export const GET = handler
+export const POST = handler

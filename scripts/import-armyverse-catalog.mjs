@@ -133,29 +133,57 @@ async function main() {
 
     const tracks = rawTracks.map(sanitizeTrack).filter(Boolean)
     const albums = rawAlbums.map(sanitizeAlbum).filter(Boolean)
+    const trackIds = tracks.map((track) => track.spotifyId)
+    const albumIds = albums.map((album) => album.spotifyId)
 
-    if (tracks.length > 0) {
-      await targetDb.collection("tracks").bulkWrite(
-        tracks.map((track) => ({
-          updateOne: {
-            filter: { spotifyId: track.spotifyId },
-            update: { $set: track },
-            upsert: true
-          }
-        }))
-      )
-    }
+    const session = await target.startSession()
 
-    if (albums.length > 0) {
-      await targetDb.collection("albums").bulkWrite(
-        albums.map((album) => ({
-          updateOne: {
-            filter: { spotifyId: album.spotifyId },
-            update: { $set: album },
-            upsert: true
-          }
-        }))
-      )
+    try {
+      await session.withTransaction(async () => {
+        if (tracks.length > 0) {
+          await targetDb.collection("tracks").bulkWrite(
+            tracks.map((track) => ({
+              updateOne: {
+                filter: { spotifyId: track.spotifyId },
+                update: { $set: track },
+                upsert: true
+              }
+            })),
+            { session, ordered: false }
+          )
+        }
+
+        if (albums.length > 0) {
+          await targetDb.collection("albums").bulkWrite(
+            albums.map((album) => ({
+              updateOne: {
+                filter: { spotifyId: album.spotifyId },
+                update: { $set: album },
+                upsert: true
+              }
+            })),
+            { session, ordered: false }
+          )
+        }
+
+        await targetDb.collection("tracks").deleteMany(
+          {
+            isBTSFamily: true,
+            spotifyId: { $nin: trackIds }
+          },
+          { session }
+        )
+
+        await targetDb.collection("albums").deleteMany(
+          {
+            isBTSFamily: true,
+            spotifyId: { $nin: albumIds }
+          },
+          { session }
+        )
+      })
+    } finally {
+      await session.endSession()
     }
 
     console.log(

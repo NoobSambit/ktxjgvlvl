@@ -4,7 +4,7 @@ Scalable Next.js App Router foundation for a BTS streaming coordination platform
 
 ## Deployment Target
 
-This app is configured for Cloudflare Workers using `@opennextjs/cloudflare`.
+This app is configured to deploy on Vercel and run scheduled jobs through an external cron service such as `cron-job.org`.
 
 ## What is implemented
 
@@ -38,47 +38,65 @@ This app is configured for Cloudflare Workers using `@opennextjs/cloudflare`.
 - `GET /api/v1/wiki`
 - `GET /api/v1/events`
 - `GET /api/v1/fan-projects`
-- `POST /api/internal/cron/*`
+- `GET/POST /api/internal/cron/*`
 
 ## Environment
 
 Copy `.env.example` to `.env.local` and provide:
 
 - `MONGODB_URI`
+- `ARMYVERSE_MONGODB_URI`
+- `LASTFM_API_KEY`
 - `CRON_SECRET`
 - `APP_URL`
+- `DISABLE_CRON_AUTH`
 
-For local Cloudflare preview, also copy `.dev.vars.example` to `.dev.vars` and keep the same values there.
+## Vercel Deploy
 
-## Cloudflare Deploy
-
-1. Install dependencies with `npm install`.
-2. Create a KV namespace for the Next incremental cache.
-3. Replace `replace-with-your-kv-namespace-id` in `wrangler.jsonc` with the real KV namespace id.
-4. Add your runtime secrets and vars in Cloudflare:
+1. Import the repository into Vercel.
+2. Add the runtime environment variables:
    - `MONGODB_URI`
    - `ARMYVERSE_MONGODB_URI`
    - `LASTFM_API_KEY`
    - `CRON_SECRET`
    - `APP_URL`
    - `DISABLE_CRON_AUTH`
-5. Build the Cloudflare worker bundle with `npm run cf:build`.
-6. Preview locally with `npm run cf:preview`.
-7. Deploy with `npm run cf:deploy`.
+3. Keep `APP_URL` set to the final production origin.
+4. Do not configure Vercel Cron Jobs for this project.
 
-## Cloudflare Cron Triggers
+## External Cron Jobs
 
-`wrangler.jsonc` configures native Cloudflare cron triggers for:
+Create the scheduled jobs in `cron-job.org` instead of Vercel.
 
-- hourly tracker sync
-- hourly location activity materialization
-- 6-hour chart snapshot scraping
-- daily mission rollover at `12:01 AM IST`
-- weekly mission rollover at `12:05 AM IST` on Monday
+Recommended shared settings:
+
+- timezone: `Asia/Kolkata`
+- request method: `POST`
+- header: `x-cron-secret: <your CRON_SECRET value>`
+- target base URL: `https://<your-vercel-domain>`
+
+Recommended jobs:
+
+- `00:31` every day:
+  `/api/internal/cron/generate-daily-missions`
+- `00:35` every Monday:
+  `/api/internal/cron/generate-weekly-missions`
+- `02:05` every day:
+  `/api/internal/cron/sync-active-trackers`
+- `03:05` every day:
+  `/api/internal/cron/materialize-leaderboards`
+- `04:05` every day:
+  `/api/internal/cron/materialize-location-activity`
+- `05:05` every day:
+  `/api/internal/cron/scrape-chart-snapshots`
+
+The internal cron routes also accept `GET`, but `POST` plus `x-cron-secret` is the recommended external setup.
 
 ## Notes
 
 - Internal cron routes are protected by `CRON_SECRET` when it is set.
-- Location auto-suggestion accepts both Vercel geo headers and Cloudflare geo headers. For state/city level Cloudflare hints, enable visitor-location request headers in Cloudflare if you want hosting-based suggestion quality comparable to Vercel.
+- Only use one scheduler. If you use `cron-job.org`, do not also configure Vercel Cron Jobs.
+- The cron endpoints keep both `GET` and `POST` enabled for manual ops and external schedulers.
+- Location auto-suggestion accepts both Vercel geo headers and Cloudflare geo headers.
 - The current services return seeded/demo data so the UI and API layers are runnable before the full Mongo-backed repository layer is finished.
 - `Stats.fm` is intentionally adapter-ready but not enabled in the MVP service layer yet.

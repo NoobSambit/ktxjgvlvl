@@ -6,9 +6,6 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "cf:build": "opennextjs-cloudflare",
-    "cf:preview": "npm run cf:build && wrangler dev",
-    "cf:deploy": "npm run cf:build && wrangler deploy",
     "lint": "next lint",
     "type-check": "tsc --noEmit",
     "import:armyverse-catalog": "node scripts/import-armyverse-catalog.mjs",
@@ -36,14 +33,12 @@
     "zod": "^3.24.2"
   },
   "devDependencies": {
-    "@opennextjs/cloudflare": "^0.4.8",
     "@types/node": "20.16.11",
     "@types/react": "^18.3.11",
     "@types/react-dom": "^18.3.1",
     "autoprefixer": "^10.4.20",
     "postcss": "^8.4.47",
     "tailwindcss": "^3.4.17",
-    "typescript": "5.6.3",
-    "wrangler": "^3.114.1"
+    "typescript": "5.6.3"
   }
 }
