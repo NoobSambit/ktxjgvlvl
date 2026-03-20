@@ -1,10 +1,10 @@
 "use client"
 
+import Image from "next/image"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { 
-  Music4, 
   Sparkles, 
   LogOut, 
   Menu, 
@@ -50,6 +50,7 @@ export function SiteHeader({ session }: { session: any }) {
   const [isScrolled, setIsScrolled] = useState(false)
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [isMoreOpen, setIsMoreOpen] = useState(false)
+  const moreMenuRef = useRef<HTMLDivElement | null>(null)
 
   const isAdmin = session?.roles?.includes("super_admin") || session?.roles?.includes("mission_admin")
 
@@ -65,17 +66,43 @@ export function SiteHeader({ session }: { session: any }) {
     setIsMoreOpen(false)
   }, [pathname])
 
+  useEffect(() => {
+    if (!isMoreOpen) {
+      return
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!moreMenuRef.current?.contains(event.target as Node)) {
+        setIsMoreOpen(false)
+      }
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsMoreOpen(false)
+      }
+    }
+
+    document.addEventListener("pointerdown", handlePointerDown)
+    document.addEventListener("keydown", handleKeyDown)
+
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown)
+      document.removeEventListener("keydown", handleKeyDown)
+    }
+  }, [isMoreOpen])
+
   return (
     <header className={cn(
       "fixed top-0 left-0 right-0 z-[100] px-2 pt-3 pb-1.5 transition-all duration-300 sm:px-4 sm:pt-4 sm:pb-2",
       isScrolled ? "pt-1.5 sm:pt-2" : "pt-3 sm:pt-4"
     )}>
       <nav className={cn(
-        "mx-auto flex h-[3.75rem] max-w-[1800px] items-center justify-between overflow-hidden rounded-[1.15rem] px-3 transition-all duration-500 sm:h-16 sm:rounded-2xl sm:px-6",
+        "mx-auto flex h-[3.75rem] max-w-[1800px] items-center justify-between overflow-visible rounded-[1.15rem] px-3 transition-all duration-500 sm:h-16 sm:rounded-2xl sm:px-6",
         "bg-zinc-950/80 backdrop-blur-xl border border-white/10 shadow-2xl shadow-black/20 relative",
         isScrolled && "h-[3.25rem] bg-zinc-950/95 border-white/10 sm:h-14"
       )}>
-        <div className="absolute inset-0 pointer-events-none opacity-90 mix-blend-screen">
+        <div className="absolute inset-0 overflow-hidden rounded-[1.15rem] pointer-events-none opacity-90 mix-blend-screen sm:rounded-2xl">
           <svg
             className="w-full h-full"
             viewBox="0 0 1000 64"
@@ -131,8 +158,15 @@ export function SiteHeader({ session }: { session: any }) {
           {/* Logo */}
           <Link href="/" className="flex items-center gap-2 group shrink-0">
             <div className="relative">
-              <div className="rounded-xl bg-black/40 p-2 text-white shadow-[0_0_15px_rgba(0,0,0,0.5)] backdrop-blur-md border border-white/20 transition-transform group-hover:scale-110">
-                <Music4 className="h-4 w-4 md:h-5 md:w-5" />
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-black/40 p-1.5 shadow-[0_0_15px_rgba(0,0,0,0.5)] backdrop-blur-md border border-white/20 transition-transform group-hover:scale-110 md:h-11 md:w-11">
+                <Image
+                  src="/bts-india-logo.svg"
+                  alt="IndiaForBTS logo"
+                  width={32}
+                  height={32}
+                  className="h-full w-full object-contain"
+                  priority
+                />
               </div>
             </div>
             <div className="hidden sm:block">
@@ -164,9 +198,12 @@ export function SiteHeader({ session }: { session: any }) {
             ))}
 
             {/* More Dropdown */}
-            <div className="relative ml-2">
+            <div ref={moreMenuRef} className="relative ml-2">
               <button
                 onClick={() => setIsMoreOpen(!isMoreOpen)}
+                aria-expanded={isMoreOpen}
+                aria-haspopup="menu"
+                aria-controls="desktop-more-menu"
                 className={cn(
                   "flex items-center gap-1.5 px-4 py-2 text-sm font-bold rounded-xl transition-all",
                   isMoreOpen ? "bg-black/50 text-white shadow-inner" : "text-white/90 hover:text-white hover:bg-black/30 [text-shadow:_0_1px_6px_rgba(0,0,0,0.9)]"
@@ -177,11 +214,16 @@ export function SiteHeader({ session }: { session: any }) {
               </button>
 
               {isMoreOpen && (
-                <div className="absolute top-full right-0 mt-2 w-48 p-2 rounded-2xl bg-zinc-900/95 backdrop-blur-xl border border-white/20 animate-in fade-in slide-in-from-top-2">
+                <div
+                  id="desktop-more-menu"
+                  role="menu"
+                  className="absolute top-full right-0 z-[120] mt-2 w-48 p-2 rounded-2xl bg-zinc-900/95 backdrop-blur-xl border border-white/20 shadow-2xl shadow-black/40 animate-in fade-in slide-in-from-top-2"
+                >
                   {moreLinks.map((link) => (
                     <Link
                       key={link.href}
                       href={link.href}
+                      role="menuitem"
                       className="flex items-center gap-2.5 px-3 py-2 text-sm text-white/70 hover:text-white hover:bg-white/5 rounded-xl transition-colors"
                     >
                       <link.icon className="w-4 h-4" />

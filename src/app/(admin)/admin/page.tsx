@@ -1,9 +1,9 @@
 import { MissionAdminConsole } from "@/components/admin/mission-admin-console"
 import { PageHero } from "@/components/shared/page-hero"
+import { DashboardPill } from "@/components/dashboard/dashboard-shell"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Settings, Clock, TrendingUp, Layers, Database, RefreshCw, Zap, Shield } from "lucide-react"
+import { Settings, Clock, TrendingUp, Layers, Database, RefreshCw, Zap, Shield, Sparkles } from "lucide-react"
 import { getAdminOverview } from "@/modules/admin/service"
-import { listChartCards } from "@/modules/charts/service"
 import { getMissionAdminState } from "@/modules/missions/service"
 
 export const dynamic = "force-dynamic"
@@ -21,9 +21,8 @@ function formatDateTime(value?: string) {
 }
 
 export default async function AdminPage() {
-  const [overview, charts, missionAdminState] = await Promise.all([
+  const [overview, missionAdminState] = await Promise.all([
     getAdminOverview(),
-    listChartCards(),
     getMissionAdminState()
   ])
 
@@ -80,23 +79,25 @@ export default async function AdminPage() {
       <section className="grid gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-[hsl(170,60%,40%)]/10 flex items-center justify-center">
-                <TrendingUp className="w-4 h-4 text-[hsl(170,60%,40%)]" />
-              </div>
-              Latest Chart Snapshot
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {charts[0]?.entries.map((entry) => (
-              <div className="flex items-center justify-between rounded-xl border border-border/50 px-4 py-3" key={entry.title}>
-                <div className="min-w-0">
-                  <span className="text-sm font-medium">{entry.artist}</span>
-                  <span className="text-sm text-muted-foreground"> · {entry.title}</span>
+            <div className="flex items-start justify-between gap-3">
+              <CardTitle className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-[hsl(170,60%,40%)]/10 flex items-center justify-center">
+                  <TrendingUp className="w-4 h-4 text-[hsl(170,60%,40%)]" />
                 </div>
-                <span className="font-semibold text-[hsl(265,60%,55%)]">#{entry.rank}</span>
-              </div>
-            ))}
+                Latest Chart Snapshot
+              </CardTitle>
+              <DashboardPill icon={Sparkles} tone="saffron">
+                Coming soon
+              </DashboardPill>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="rounded-xl border border-dashed border-white/10 bg-muted/20 px-4 py-5">
+              <p className="text-sm font-medium text-foreground">Chart snapshot cards are temporarily hidden.</p>
+              <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                The admin chart container will return after the public charts experience ships with the rebuilt data flow and reviewable ranking rules.
+              </p>
+            </div>
           </CardContent>
         </Card>
 
