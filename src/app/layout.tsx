@@ -1,5 +1,20 @@
 import type { Metadata } from "next"
+import { Manrope, Plus_Jakarta_Sans } from "next/font/google"
 import "./globals.css"
+
+const bodyFont = Manrope({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700", "800"],
+  variable: "--font-body",
+  display: "swap"
+})
+
+const headingFont = Plus_Jakarta_Sans({
+  subsets: ["latin"],
+  weight: ["500", "600", "700", "800"],
+  variable: "--font-heading",
+  display: "swap"
+})
 
 export const metadata: Metadata = {
   title: "IndiaForBTS | Indian BTS ARMY Hub",
@@ -9,7 +24,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body className="min-h-screen font-body bg-[#0a0514]">
+      <body className={`${bodyFont.variable} ${headingFont.variable} min-h-screen bg-[#0a0514] font-body`}>
         {children}
       </body>
     </html>

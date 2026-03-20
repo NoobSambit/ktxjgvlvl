@@ -13,7 +13,7 @@ const config = {
         lg: "2rem"
       },
       screens: {
-        "2xl": "1800px"
+        "2xl": "1680px"
       }
     },
     extend: {

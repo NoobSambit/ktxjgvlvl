@@ -98,7 +98,7 @@ export function SiteHeader({ session }: { session: any }) {
       isScrolled ? "pt-1.5 sm:pt-2" : "pt-3 sm:pt-4"
     )}>
       <nav className={cn(
-        "mx-auto flex h-[3.75rem] max-w-[1800px] items-center justify-between overflow-visible rounded-[1.15rem] px-3 transition-all duration-500 sm:h-16 sm:rounded-2xl sm:px-6",
+        "mx-auto flex h-[3.75rem] max-w-[1680px] items-center justify-between overflow-visible rounded-[1.15rem] px-3 transition-all duration-500 sm:h-16 sm:rounded-2xl sm:px-5 lg:px-6",
         "bg-zinc-950/80 backdrop-blur-xl border border-white/10 shadow-2xl shadow-black/20 relative",
         isScrolled && "h-[3.25rem] bg-zinc-950/95 border-white/10 sm:h-14"
       )}>

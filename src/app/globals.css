@@ -1,13 +1,9 @@
-@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap');
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
-  --font-body: "Manrope", "system-ui", sans-serif;
-  --font-heading: "Plus Jakarta Sans", "system-ui", sans-serif;
-  --font-display: "Plus Jakarta Sans", "system-ui", sans-serif;
+  --font-display: var(--font-heading);
   
   --background: 265 40% 8%;
   --foreground: 0 0% 92%;
@@ -61,6 +57,23 @@
     hsl(160 66% 44% / 0.99) 100%
   );
   --scrollbar-border: hsl(0 0% 100% / 0.14);
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+@media (min-width: 1024px) {
+  html {
+    font-size: 15px;
+  }
+}
+
+@media (min-width: 1600px) {
+  html {
+    font-size: 16px;
+  }
 }
 
 * {
@@ -138,7 +151,7 @@ a {
 
 @layer components {
   .site-shell {
-    @apply mx-auto w-full max-w-[1800px] px-2 sm:px-4 lg:px-8;
+    @apply mx-auto w-full max-w-[1680px] px-2 sm:px-4 lg:px-6;
   }
 
   .card-dark {

@@ -506,7 +506,7 @@ function MissionControlHero({
           </div>
 
           <div className="space-y-3">
-            <h1 className="max-w-[14ch] font-heading text-[2.2rem] font-semibold leading-[0.96] tracking-[-0.05em] text-white sm:text-[3.2rem]">
+            <h1 className="max-w-[14ch] font-heading text-[clamp(2rem,4vw,2.9rem)] font-semibold leading-[0.96] tracking-[-0.05em] text-white">
               Missions made simple
             </h1>
             <p className="max-w-3xl text-sm leading-6 text-white/70 sm:text-base sm:leading-7">
@@ -1075,7 +1075,7 @@ function MissionDetailCard({
               <Icon className="h-4.5 w-4.5" />
             </div>
             <div className="min-w-0">
-              <h3 className="font-heading text-2xl font-semibold tracking-tight text-white sm:text-[2rem]">{mission.title}</h3>
+              <h3 className="font-heading text-[1.85rem] font-semibold tracking-tight text-white xl:text-[1.95rem]">{mission.title}</h3>
               <p className="mt-2 text-sm leading-6 text-white/62">{getMissionPlainSummary(mission)}</p>
             </div>
           </div>
