@@ -6,6 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "job:run": "node --no-warnings=ExperimentalWarning --experimental-strip-types --loader ./scripts/ts-runtime-loader.mjs ./scripts/run-cron-job.mjs",
+    "job:sync-active-trackers": "npm run job:run -- sync-active-trackers",
     "lint": "next lint",
     "type-check": "tsc --noEmit",
     "import:armyverse-catalog": "node scripts/import-armyverse-catalog.mjs",

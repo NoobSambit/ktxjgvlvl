@@ -1,0 +1,35 @@
+name: Sync Active Trackers
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-active-trackers
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      NODE_ENV: production
+      MONGODB_URI: ${{ secrets.MONGODB_URI }}
+      LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Sync verified tracker connections
+        run: npm run job:sync-active-trackers
