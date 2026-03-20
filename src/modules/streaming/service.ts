@@ -61,6 +61,20 @@ type UserDoc = {
 
 let cachedTrackMatchers: CatalogTrackMatcher[] | null = null
 
+function toErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error)
+}
+
+function logTrackerSync(event: string, detail: Record<string, unknown>) {
+  console.log(
+    JSON.stringify({
+      event,
+      occurredAt: new Date().toISOString(),
+      ...detail
+    })
+  )
+}
+
 async function loadBtsTrackMatchers() {
   if (cachedTrackMatchers) {
     return cachedTrackMatchers
@@ -353,6 +367,7 @@ async function syncTrackerConnectionActivity(
 }
 
 export async function syncVerifiedTrackerConnections() {
+  const startedAt = Date.now()
   await connectToDatabase()
 
   const connections = (await TrackerConnectionModel.find({
@@ -372,15 +387,37 @@ export async function syncVerifiedTrackerConnections() {
     return true
   })
 
+  logTrackerSync("tracker_sync_run_started", {
+    verifiedConnectionCount: connections.length,
+    uniqueUserCount: uniqueConnections.length
+  })
+
   let syncedEvents = 0
   let scoredEvents = 0
   let failedUsers = 0
 
   for (const connection of uniqueConnections) {
+    const connectionStartedAt = Date.now()
+
+    logTrackerSync("tracker_sync_connection_started", {
+      provider: connection.provider,
+      username: connection.username,
+      checkpoint: connection.lastCheckpoint ?? null
+    })
+
     try {
       const summary = await syncTrackerConnectionActivity(connection, { materializeAfter: false })
       syncedEvents += summary.syncedEvents
       scoredEvents += summary.scoredEvents
+
+      logTrackerSync("tracker_sync_connection_completed", {
+        provider: connection.provider,
+        username: connection.username,
+        durationMs: Date.now() - connectionStartedAt,
+        syncedEvents: summary.syncedEvents,
+        scoredEvents: summary.scoredEvents,
+        checkpoint: summary.checkpoint
+      })
     } catch (error) {
       failedUsers += 1
       console.error("tracker sync failed", {
@@ -388,11 +425,36 @@ export async function syncVerifiedTrackerConnections() {
         provider: connection.provider,
         error
       })
+
+      logTrackerSync("tracker_sync_connection_failed", {
+        provider: connection.provider,
+        username: connection.username,
+        durationMs: Date.now() - connectionStartedAt,
+        error: toErrorMessage(error)
+      })
     }
   }
 
+  const materializationStartedAt = Date.now()
+  logTrackerSync("tracker_sync_materialization_started", {
+    boardRefresh: true,
+    locationRefresh: true
+  })
+
   await materializeLeaderboards()
   await materializeLocationActivity()
+
+  logTrackerSync("tracker_sync_materialization_completed", {
+    durationMs: Date.now() - materializationStartedAt
+  })
+
+  logTrackerSync("tracker_sync_run_completed", {
+    durationMs: Date.now() - startedAt,
+    syncedUsers: uniqueConnections.length,
+    syncedEvents,
+    scoredEvents,
+    failedUsers
+  })
 
   return {
     syncedUsers: uniqueConnections.length,
