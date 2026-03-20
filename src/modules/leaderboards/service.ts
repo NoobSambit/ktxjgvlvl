@@ -1,4 +1,6 @@
 import { Types } from "mongoose"
+import { unstable_cache } from "next/cache"
+import { cacheTags, revalidateCacheTags, sharedCacheRevalidateSeconds } from "@/platform/cache/shared"
 import { getCurrentUserRecord } from "@/platform/auth/current-user"
 import {
   LeaderboardBoardModel,
@@ -218,6 +220,8 @@ export async function recordLeaderboardPointEvents(events: PointEventInput[]) {
       },
       { $set: { isDirty: true } }
     )
+
+    revalidateCacheTags(cacheTags.leaderboards)
   }
 
   return { inserted: result.upsertedCount ?? 0 }
@@ -468,23 +472,13 @@ async function buildFullEntryViews(boardId: Types.ObjectId) {
   }
 }
 
-async function buildLeaderboardBoardView(
+async function buildSharedLeaderboardBoardView(
   board: MaterializableLeaderboardBoardDoc,
-  user: Awaited<ReturnType<typeof getCurrentUserRecord>>,
-  currentStateKey: string | undefined,
   options: GetLeaderboardByIdOptions = {}
 ): Promise<LeaderboardBoardView> {
   const entryData = options.fullEntries
     ? await buildFullEntryViews(board._id)
     : await buildEntryViewsFromSnapshot(board._id)
-  const [currentUserEntryDoc, currentStateEntryDoc] = await Promise.all([
-    board.boardType === "individual" && user._id
-      ? (LeaderboardEntryModel.findOne({ boardId: board._id, userId: user._id }).lean() as unknown as Promise<LeaderboardEntryDoc | null>)
-      : null,
-    board.boardType === "state" && currentStateKey
-      ? (LeaderboardEntryModel.findOne({ boardId: board._id, competitorKey: currentStateKey }).lean() as unknown as Promise<LeaderboardEntryDoc | null>)
-      : null
-  ])
 
   return {
     boardId: String(board._id),
@@ -496,61 +490,153 @@ async function buildLeaderboardBoardView(
     headline: buildBoardHeadline(board.boardType as "individual" | "state", board.period as "daily" | "weekly"),
     entries: entryData.entries.map((entry) => ({
       ...entry,
+      isCurrentUser: false
+    })),
+    totalParticipants: entryData.totalParticipants,
+    currentUserEntry: null,
+    currentStateEntry: null
+  } satisfies LeaderboardBoardView
+}
+
+function attachCurrentEntriesToBoard(
+  board: LeaderboardBoardView,
+  currentUserEntryDoc: LeaderboardEntryDoc | null,
+  currentStateEntryDoc: LeaderboardEntryDoc | null
+) {
+  return {
+    ...board,
+    entries: board.entries.map((entry) => ({
+      ...entry,
       isCurrentUser:
         entry.competitorType === "user" && currentUserEntryDoc
           ? entry.competitorKey === currentUserEntryDoc.competitorKey
           : false
     })),
-    totalParticipants: entryData.totalParticipants,
     currentUserEntry: currentUserEntryDoc ? toSnapshotEntry(currentUserEntryDoc) : null,
     currentStateEntry: currentStateEntryDoc ? toSnapshotEntry(currentStateEntryDoc) : null
   } satisfies LeaderboardBoardView
 }
 
+const getCachedSharedLeaderboards = unstable_cache(
+  async (period: ListLeaderboardOptions["period"] | null, boardType: ListLeaderboardOptions["boardType"] | null) => {
+    await connectToDatabase()
+    await ensureCurrentLeaderboardBoards()
+
+    const periods = getCurrentIndiaPeriods()
+    const allowedPeriodKeys = period
+      ? [periods[period].periodKey]
+      : [periods.daily.periodKey, periods.weekly.periodKey]
+
+    const filter: Record<string, unknown> = {
+      schemaVersion: 2,
+      periodKey: { $in: allowedPeriodKeys }
+    }
+
+    if (boardType) {
+      filter.boardType = boardType
+    }
+
+    const boards = await LeaderboardBoardModel.find(filter)
+      .sort({ period: 1, boardType: 1 })
+      .lean()
+
+    const dirtyBoardIds = boards.filter((board) => board.isDirty).map((board) => board._id as Types.ObjectId)
+
+    if (dirtyBoardIds.length > 0) {
+      await materializeLeaderboards({ boardIds: dirtyBoardIds })
+    }
+
+    const refreshedBoards = await LeaderboardBoardModel.find(filter)
+      .sort({ period: 1, boardType: 1 })
+      .lean()
+
+    return Promise.all(
+      refreshedBoards.map((board) =>
+        buildSharedLeaderboardBoardView(board as unknown as MaterializableLeaderboardBoardDoc)
+      )
+    )
+  },
+  ["leaderboards:list:v2"],
+  {
+    revalidate: sharedCacheRevalidateSeconds,
+    tags: [cacheTags.leaderboards]
+  }
+)
+
+const getCachedSharedLeaderboardById = unstable_cache(
+  async (boardId: string, fullEntries: boolean) => {
+    await connectToDatabase()
+
+    if (!Types.ObjectId.isValid(boardId)) {
+      return null
+    }
+
+    const boardObjectId = new Types.ObjectId(boardId)
+    let board = (await LeaderboardBoardModel.findOne({
+      _id: boardObjectId,
+      schemaVersion: 2
+    }).lean()) as unknown as MaterializableLeaderboardBoardDoc | null
+
+    if (!board) {
+      return null
+    }
+
+    if (board.isDirty) {
+      await materializeLeaderboards({ boardIds: [boardObjectId] })
+      board = (await LeaderboardBoardModel.findOne({
+        _id: boardObjectId,
+        schemaVersion: 2
+      }).lean()) as unknown as MaterializableLeaderboardBoardDoc | null
+
+      if (!board) {
+        return null
+      }
+    }
+
+    return buildSharedLeaderboardBoardView(board, { fullEntries })
+  },
+  ["leaderboards:by-id:v2"],
+  {
+    revalidate: sharedCacheRevalidateSeconds,
+    tags: [cacheTags.leaderboards]
+  }
+)
+
 export async function listLeaderboards(
   options: ListLeaderboardOptions = {}
 ): Promise<LeaderboardBoardView[]> {
   await connectToDatabase()
-  await ensureCurrentLeaderboardBoards()
-
+  const sharedBoards = await getCachedSharedLeaderboards(options.period ?? null, options.boardType ?? null)
   const user = await getCurrentUserRecord()
-  const periods = getCurrentIndiaPeriods()
-  const allowedPeriodKeys = options.period
-    ? [periods[options.period].periodKey]
-    : [periods.daily.periodKey, periods.weekly.periodKey]
-
-  const filter: Record<string, unknown> = {
-    schemaVersion: 2,
-    periodKey: { $in: allowedPeriodKeys }
-  }
-
-  if (options.boardType) {
-    filter.boardType = options.boardType
-  }
-
-  const boards = await LeaderboardBoardModel.find(filter)
-    .sort({ period: 1, boardType: 1 })
-    .lean()
-
-  const dirtyBoardIds = boards.filter((board) => board.isDirty).map((board) => board._id as Types.ObjectId)
-
-  if (dirtyBoardIds.length > 0) {
-    await materializeLeaderboards({ boardIds: dirtyBoardIds })
-  }
-
-  const refreshedBoards = await LeaderboardBoardModel.find(filter)
-    .sort({ period: 1, boardType: 1 })
-    .lean()
-
   const currentStateKey = buildStateScopeKeyFromRegion(user.region)
+  const boardIds = sharedBoards.map((board) => new Types.ObjectId(board.boardId))
+  const [currentUserEntryDocs, currentStateEntryDocs] = await Promise.all([
+    user._id
+      ? (LeaderboardEntryModel.find({
+          boardId: { $in: boardIds },
+          userId: user._id
+        }).lean() as unknown as Promise<LeaderboardEntryDoc[]>)
+      : Promise.resolve([]),
+    currentStateKey
+      ? (LeaderboardEntryModel.find({
+          boardId: { $in: boardIds },
+          competitorKey: currentStateKey
+        }).lean() as unknown as Promise<LeaderboardEntryDoc[]>)
+      : Promise.resolve([])
+  ])
 
-  return Promise.all(
-    refreshedBoards.map((board) =>
-      buildLeaderboardBoardView(
-        board as unknown as MaterializableLeaderboardBoardDoc,
-        user,
-        currentStateKey
-      )
+  const currentUserEntryMap = new Map(
+    currentUserEntryDocs.map((entry) => [String(entry.boardId), entry] as const)
+  )
+  const currentStateEntryMap = new Map(
+    currentStateEntryDocs.map((entry) => [String(entry.boardId), entry] as const)
+  )
+
+  return sharedBoards.map((board) =>
+    attachCurrentEntriesToBoard(
+      board,
+      currentUserEntryMap.get(board.boardId) ?? null,
+      currentStateEntryMap.get(board.boardId) ?? null
     )
   )
 }
@@ -560,40 +646,33 @@ export async function getLeaderboardById(
   options: GetLeaderboardByIdOptions = {}
 ): Promise<LeaderboardBoardView | null> {
   await connectToDatabase()
+  const sharedBoard = await getCachedSharedLeaderboardById(boardId, Boolean(options.fullEntries))
 
-  if (!Types.ObjectId.isValid(boardId)) {
+  if (!sharedBoard) {
     return null
-  }
-
-  const boardObjectId = new Types.ObjectId(boardId)
-  let board = (await LeaderboardBoardModel.findOne({
-    _id: boardObjectId,
-    schemaVersion: 2
-  }).lean()) as unknown as MaterializableLeaderboardBoardDoc | null
-
-  if (!board) {
-    return null
-  }
-
-  if (board.isDirty) {
-    await materializeLeaderboards({ boardIds: [boardObjectId] })
-    board = (await LeaderboardBoardModel.findOne({
-      _id: boardObjectId,
-      schemaVersion: 2
-    }).lean()) as unknown as MaterializableLeaderboardBoardDoc | null
-
-    if (!board) {
-      return null
-    }
   }
 
   const user = await getCurrentUserRecord()
   const currentStateKey = buildStateScopeKeyFromRegion(user.region)
+  const [currentUserEntryDoc, currentStateEntryDoc] = await Promise.all([
+    user._id
+      ? (LeaderboardEntryModel.findOne({
+          boardId: new Types.ObjectId(sharedBoard.boardId),
+          userId: user._id
+        }).lean() as unknown as Promise<LeaderboardEntryDoc | null>)
+      : Promise.resolve(null),
+    currentStateKey
+      ? (LeaderboardEntryModel.findOne({
+          boardId: new Types.ObjectId(sharedBoard.boardId),
+          competitorKey: currentStateKey
+        }).lean() as unknown as Promise<LeaderboardEntryDoc | null>)
+      : Promise.resolve(null)
+  ])
 
-  return buildLeaderboardBoardView(board, user, currentStateKey, options)
+  return attachCurrentEntriesToBoard(sharedBoard, currentUserEntryDoc, currentStateEntryDoc)
 }
 
-export async function getLeaderboardStatusSummary() {
+const getLeaderboardStatusSummaryCached = unstable_cache(async () => {
   await connectToDatabase()
 
   const [lastTrackerSyncDoc, lastMaterializedBoard] = await Promise.all([
@@ -611,4 +690,11 @@ export async function getLeaderboardStatusSummary() {
     lastTrackerSyncAt: lastTrackerSyncDoc?.lastSyncAt?.toISOString(),
     lastLeaderboardMaterializedAt: lastMaterializedBoard?.lastMaterializedAt?.toISOString()
   }
+}, ["leaderboards:status:v1"], {
+  revalidate: sharedCacheRevalidateSeconds,
+  tags: [cacheTags.leaderboardsStatus]
+})
+
+export async function getLeaderboardStatusSummary() {
+  return getLeaderboardStatusSummaryCached()
 }

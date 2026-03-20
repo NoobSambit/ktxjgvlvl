@@ -1,4 +1,6 @@
 import mongoose from "mongoose"
+import { unstable_cache } from "next/cache"
+import { cacheTags, revalidateCacheTags, sharedCacheRevalidateSeconds } from "@/platform/cache/shared"
 import { CatalogAlbumModel, CatalogTrackModel } from "@/platform/db/models/catalog"
 import { connectToDatabase } from "@/platform/db/mongoose"
 import { env } from "@/platform/validation/env"
@@ -104,7 +106,7 @@ function sanitizeAlbum(record: ArmyverseAlbumRecord) {
   }
 }
 
-export async function getCatalogSummary(): Promise<CatalogSummary> {
+const getCatalogSummaryCached = unstable_cache(async (): Promise<CatalogSummary> => {
   await connectToDatabase()
 
   const [trackCount, albumCount] = await Promise.all([
@@ -113,9 +115,16 @@ export async function getCatalogSummary(): Promise<CatalogSummary> {
   ])
 
   return { trackCount, albumCount }
+}, ["catalog:summary:v1"], {
+  revalidate: sharedCacheRevalidateSeconds,
+  tags: [cacheTags.catalog, cacheTags.catalogSummary]
+})
+
+export async function getCatalogSummary(): Promise<CatalogSummary> {
+  return getCatalogSummaryCached()
 }
 
-export async function listTrackOptions(): Promise<CatalogOption[]> {
+const listTrackOptionsCached = unstable_cache(async (): Promise<CatalogOption[]> => {
   await connectToDatabase()
 
   const tracks = await CatalogTrackModel.find({ isBTSFamily: true })
@@ -132,9 +141,16 @@ export async function listTrackOptions(): Promise<CatalogOption[]> {
       track.thumbnails?.large ??
       track.thumbnails?.small
   }))
+}, ["catalog:track-options:v1"], {
+  revalidate: sharedCacheRevalidateSeconds,
+  tags: [cacheTags.catalog, cacheTags.catalogTracks]
+})
+
+export async function listTrackOptions(): Promise<CatalogOption[]> {
+  return listTrackOptionsCached()
 }
 
-export async function listAlbumOptions(): Promise<CatalogOption[]> {
+const listAlbumOptionsCached = unstable_cache(async (): Promise<CatalogOption[]> => {
   await connectToDatabase()
 
   const albums = await CatalogAlbumModel.find({ isBTSFamily: true })
@@ -148,6 +164,13 @@ export async function listAlbumOptions(): Promise<CatalogOption[]> {
     secondaryLabel: `${album.artist} · ${album.trackCount} tracks`,
     imageUrl: album.coverImage
   }))
+}, ["catalog:album-options:v1"], {
+  revalidate: sharedCacheRevalidateSeconds,
+  tags: [cacheTags.catalog, cacheTags.catalogAlbums]
+})
+
+export async function listAlbumOptions(): Promise<CatalogOption[]> {
+  return listAlbumOptionsCached()
 }
 
 export async function syncArmyverseCatalog() {
@@ -203,11 +226,24 @@ export async function syncArmyverseCatalog() {
       )
     }
 
-    return {
+    const summary = {
       importedTracks: tracks.length,
       importedAlbums: albums.length,
       syncedAt: new Date().toISOString()
     }
+
+    revalidateCacheTags(
+      cacheTags.catalog,
+      cacheTags.catalogSummary,
+      cacheTags.catalogTracks,
+      cacheTags.catalogAlbums,
+      cacheTags.missions,
+      cacheTags.missionInstances,
+      cacheTags.missionAssets,
+      cacheTags.missionAdmin
+    )
+
+    return summary
   } finally {
     await sourceConnection.close()
   }

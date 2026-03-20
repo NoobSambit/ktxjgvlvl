@@ -1,3 +1,6 @@
+import { unstable_cache } from "next/cache"
+import { cacheTags, sharedCacheRevalidateSeconds } from "@/platform/cache/shared"
+
 export type VotingGuideView = {
   slug: string
   title: string
@@ -34,6 +37,11 @@ const seededGuides: VotingGuideView[] = [
   }
 ]
 
+const listVotingGuidesCached = unstable_cache(async () => seededGuides, ["voting-guides:v1"], {
+  revalidate: sharedCacheRevalidateSeconds,
+  tags: [cacheTags.votingGuides]
+})
+
 export async function listVotingGuides() {
-  return seededGuides
+  return listVotingGuidesCached()
 }

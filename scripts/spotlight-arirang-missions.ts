@@ -27,21 +27,21 @@ const MISSION_SCHEMA_VERSION = 3
 const ARIRANG_ALBUM_SPOTIFY_ID = "3ukkRHDHbN8tNRPKsGZR1h"
 
 const TRACK_PER_TARGET_COUNT: Record<MissionCellKey, number> = {
-  daily_india: 100,
-  daily_individual: 1,
-  daily_state: 20,
-  weekly_india: 300,
-  weekly_individual: 3,
-  weekly_state: 60
+  daily_india: 200,
+  daily_individual: 2,
+  daily_state: 40,
+  weekly_india: 600,
+  weekly_individual: 6,
+  weekly_state: 120
 }
 
 const ALBUM_GOAL_UNITS: Record<MissionCellKey, number> = {
-  daily_india: 100,
+  daily_india: 200,
   daily_individual: 1,
-  daily_state: 20,
-  weekly_india: 100,
+  daily_state: 40,
+  weekly_india: 200,
   weekly_individual: 1,
-  weekly_state: 20
+  weekly_state: 40
 }
 
 type UserLike = {
@@ -76,6 +76,14 @@ type MissionTargetEntry = {
   targetCount?: number
 }
 
+function formatTimes(count: number, cadence: MissionCadence) {
+  if (count === 1) {
+    return cadence === "daily" ? "once today" : "once this week"
+  }
+
+  return `${count} times ${cadence === "daily" ? "today" : "this week"}`
+}
+
 function getTrackGoalUnits(missionCellKey: MissionCellKey, trackCount: number) {
   return TRACK_PER_TARGET_COUNT[missionCellKey] * trackCount
 }
@@ -104,9 +112,7 @@ function buildTrackMissionDescription(
   const cadenceLabel = cadence === "daily" ? "today" : "this week"
 
   if (missionCellConfig[missionCellKey].missionKind === "individual_personal") {
-    return cadence === "daily"
-      ? "Stream every song from BTS's new album ARIRANG once today."
-      : `Stream every song from BTS's new album ARIRANG ${perTrackTargetCount} times this week.`
+    return `Stream every song from BTS's new album ARIRANG ${formatTimes(perTrackTargetCount, cadence)}.`
   }
 
   if (missionCellConfig[missionCellKey].missionKind === "state_shared") {
@@ -331,15 +337,22 @@ async function summarizeCurrentMissions() {
 }
 
 async function main() {
+  console.log("Connecting to Mongo and loading ARIRANG...")
   await connectToDatabase()
 
   const album = await requireArirangAlbum()
+  console.log("Clearing current-period mission overrides...")
   await clearCurrentPeriodOverrides()
+  console.log("Rewriting current daily and weekly mission instances...")
   await rewriteCurrentMissionInstances(album)
 
+  console.log("Recomputing mission progress for relevant users...")
   const recomputedUsers = await recomputeRelevantUsers()
+  console.log("Materializing leaderboards...")
   const leaderboardResult = await materializeLeaderboards()
+  console.log("Materializing location activity...")
   const locationResult = await materializeLocationActivity()
+  console.log("Summarizing current missions...")
   const missions = await summarizeCurrentMissions()
 
   console.log(

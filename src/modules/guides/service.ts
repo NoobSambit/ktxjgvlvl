@@ -1,3 +1,6 @@
+import { unstable_cache } from "next/cache"
+import { cacheTags, sharedCacheRevalidateSeconds } from "@/platform/cache/shared"
+
 export type GuideTone = "purple" | "rose" | "saffron" | "teal"
 
 export type CoreGuideId = "mv" | "streaming" | "purchasing" | "charts"
@@ -191,8 +194,13 @@ export const GUIDE_QUICK_READ_LIBRARY: GuideQuickReadView[] = [
   platformGuideById.apple
 ]
 
+const listGuideQuickReadsCached = unstable_cache(async () => GUIDE_QUICK_READ_LIBRARY, ["guides:quick-reads:v1"], {
+  revalidate: sharedCacheRevalidateSeconds,
+  tags: [cacheTags.guides]
+})
+
 export async function listGuideQuickReads() {
-  return GUIDE_QUICK_READ_LIBRARY
+  return listGuideQuickReadsCached()
 }
 
 export function resolveCoreGuideId(value: string | null | undefined): CoreGuideId | null {

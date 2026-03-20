@@ -337,15 +337,16 @@ function OverviewMetric({
   )
 }
 
-function LeaderboardsHero({
+export function LeaderboardsHero({
   boards,
   streamPointValue
 }: {
   boards: LeaderboardBoardView[]
   streamPointValue: number
 }) {
-  const bestPersonalEntry = getBestCurrentEntry(boards, "individual")
-  const bestStateEntry = getBestCurrentEntry(boards, "state")
+  const orderedBoards = sortBoards(boards)
+  const bestPersonalEntry = getBestCurrentEntry(orderedBoards, "individual")
+  const bestStateEntry = getBestCurrentEntry(orderedBoards, "state")
 
   return (
     <DashboardPanel className="overflow-hidden">
@@ -378,7 +379,7 @@ function LeaderboardsHero({
               buttonLabel="Open scoring guide"
               streamPointValue={streamPointValue}
             />
-            {boards.map((board) => {
+            {orderedBoards.map((board) => {
               const meta = getBoardMeta(board)
               const MetaIcon = meta.icon
 
@@ -443,7 +444,7 @@ function LeaderboardsHero({
   )
 }
 
-function ScoreSystemPanel() {
+export function ScoreSystemPanel() {
   return (
     <DashboardPanel className="overflow-hidden p-5 sm:p-6">
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,172,102,0.14),transparent_32%),radial-gradient(circle_at_bottom_right,rgba(93,210,167,0.12),transparent_30%)]" />
@@ -932,7 +933,7 @@ function LeaderboardBoardCard({
   )
 }
 
-export function LeaderboardsExperience({ boards, streamPointValue }: LeaderboardsExperienceProps) {
+export function LeaderboardsBoardsSection({ boards }: { boards: LeaderboardBoardView[] }) {
   const sortedBoards = useMemo(() => sortBoards(boards), [boards])
   const featuredPodiumBoard = useMemo(() => getFeaturedPodiumBoard(sortedBoards), [sortedBoards])
   const [mounted, setMounted] = useState(false)
@@ -991,9 +992,7 @@ export function LeaderboardsExperience({ boards, streamPointValue }: Leaderboard
     expandedBoard
 
   return (
-    <div className="space-y-6 sm:space-y-8">
-      <LeaderboardsHero boards={sortedBoards} streamPointValue={streamPointValue} />
-      <ScoreSystemPanel />
+    <>
       <LeaderboardPodium board={featuredPodiumBoard} onExpand={openFullLeaderboard} />
 
       <section className="grid gap-5 xl:grid-cols-2">
@@ -1009,6 +1008,16 @@ export function LeaderboardsExperience({ boards, streamPointValue }: Leaderboard
         mounted={mounted}
         onClose={closeModal}
       />
+    </>
+  )
+}
+
+export function LeaderboardsExperience({ boards, streamPointValue }: LeaderboardsExperienceProps) {
+  return (
+    <div className="space-y-6 sm:space-y-8">
+      <LeaderboardsHero boards={boards} streamPointValue={streamPointValue} />
+      <ScoreSystemPanel />
+      <LeaderboardsBoardsSection boards={boards} />
     </div>
   )
 }

@@ -1,8 +1,10 @@
+import { unstable_cache } from "next/cache"
+import { cacheTags, sharedCacheRevalidateSeconds } from "@/platform/cache/shared"
 import { jobKeys } from "@/platform/queues/job-types"
 import { getActivityMapAdminSummary } from "@/modules/activity-map/service"
 import { getLocationRegistrySummary } from "@/modules/locations/service"
 
-export async function getAdminOverview() {
+const getAdminOverviewCached = unstable_cache(async () => {
   const [locationRegistry, locationActivity] = await Promise.all([
     getLocationRegistrySummary(),
     getActivityMapAdminSummary()
@@ -24,4 +26,11 @@ export async function getAdminOverview() {
     locationRegistry,
     locationActivity
   }
+}, ["admin:overview:v1"], {
+  revalidate: sharedCacheRevalidateSeconds,
+  tags: [cacheTags.adminOverview, cacheTags.locationsRegistry, cacheTags.activityMapAdmin]
+})
+
+export async function getAdminOverview() {
+  return getAdminOverviewCached()
 }

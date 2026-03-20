@@ -1,6 +1,7 @@
 import type { Metadata } from "next"
 import { Manrope, Plus_Jakarta_Sans } from "next/font/google"
 import "./globals.css"
+import { RouteProgress } from "@/components/shared/route-progress"
 
 const bodyFont = Manrope({
   subsets: ["latin"],
@@ -25,6 +26,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <body className={`${bodyFont.variable} ${headingFont.variable} min-h-screen bg-[#0a0514] font-body`}>
+        <RouteProgress />
         {children}
       </body>
     </html>

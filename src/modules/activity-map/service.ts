@@ -1,4 +1,6 @@
 import { Types } from "mongoose"
+import { unstable_cache } from "next/cache"
+import { cacheTags, revalidateCacheTags, sharedCacheRevalidateSeconds } from "@/platform/cache/shared"
 import {
   LocationActivityEventModel,
   LocationActivitySnapshotModel
@@ -211,6 +213,14 @@ export async function recordLocationActivityEvents(events: ActivityEventInput[])
       })),
       { ordered: false }
     )
+
+    revalidateCacheTags(
+      cacheTags.activityMap,
+      cacheTags.activityMapDaily,
+      cacheTags.activityMapWeekly,
+      cacheTags.activityMapAdmin,
+      cacheTags.adminOverview
+    )
   }
 
   return { inserted }
@@ -356,7 +366,7 @@ async function ensureCurrentPeriodMaterialized(period: MissionCadence) {
   return currentPeriod
 }
 
-export async function getActivityMapView(period: MissionCadence): Promise<ActivityMapView> {
+async function buildActivityMapView(period: MissionCadence): Promise<ActivityMapView> {
   await connectToDatabase()
 
   const currentPeriod = await ensureCurrentPeriodMaterialized(period)
@@ -497,7 +507,21 @@ export async function getActivityMapView(period: MissionCadence): Promise<Activi
   }
 }
 
-export async function getActivityMapAdminSummary() {
+const getDailyActivityMapViewCached = unstable_cache(async () => buildActivityMapView("daily"), ["activity-map:view:daily:v1"], {
+  revalidate: sharedCacheRevalidateSeconds,
+  tags: [cacheTags.activityMap, cacheTags.activityMapDaily]
+})
+
+const getWeeklyActivityMapViewCached = unstable_cache(async () => buildActivityMapView("weekly"), ["activity-map:view:weekly:v1"], {
+  revalidate: sharedCacheRevalidateSeconds,
+  tags: [cacheTags.activityMap, cacheTags.activityMapWeekly]
+})
+
+export async function getActivityMapView(period: MissionCadence): Promise<ActivityMapView> {
+  return period === "daily" ? getDailyActivityMapViewCached() : getWeeklyActivityMapViewCached()
+}
+
+const getActivityMapAdminSummaryCached = unstable_cache(async () => {
   await connectToDatabase()
 
   const [eventCount, snapshotCount, latestSnapshot] = await Promise.all([
@@ -514,4 +538,11 @@ export async function getActivityMapAdminSummary() {
     snapshotCount,
     lastMaterializedAt: latestSnapshot?.updatedAt?.toISOString()
   }
+}, ["activity-map:admin-summary:v1"], {
+  revalidate: sharedCacheRevalidateSeconds,
+  tags: [cacheTags.activityMapAdmin, cacheTags.activityMap, cacheTags.adminOverview]
+})
+
+export async function getActivityMapAdminSummary() {
+  return getActivityMapAdminSummaryCached()
 }

@@ -1,3 +1,6 @@
+import { unstable_cache } from "next/cache"
+import { cacheTags, sharedCacheRevalidateSeconds } from "@/platform/cache/shared"
+
 export type EventView = {
   slug: string
   title: string
@@ -34,6 +37,11 @@ const seededEvents: EventView[] = [
   }
 ]
 
+const listEventsCached = unstable_cache(async () => seededEvents, ["events:v1"], {
+  revalidate: sharedCacheRevalidateSeconds,
+  tags: [cacheTags.events]
+})
+
 export async function listEvents() {
-  return seededEvents
+  return listEventsCached()
 }

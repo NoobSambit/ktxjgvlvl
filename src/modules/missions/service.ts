@@ -1,4 +1,6 @@
 import { Types } from "mongoose"
+import { unstable_cache } from "next/cache"
+import { cacheTags, revalidateCacheTags, sharedCacheRevalidateSeconds } from "@/platform/cache/shared"
 import {
   getCurrentUserRecord,
   requireAdminUserRecord,
@@ -173,6 +175,36 @@ type MissionTargetImageMaps = {
   >
 }
 
+type CachedMissionInstance = Omit<MissionInstanceDoc, "_id" | "startsAt" | "endsAt" | "updatedAt"> & {
+  id: string
+  startsAt: string
+  endsAt: string
+  updatedAt: string
+}
+
+type CachedSharedMissionProgress = Omit<
+  SharedMissionProgressDoc,
+  "_id" | "missionInstanceId" | "completedAt" | "rewardAwardedAt"
+> & {
+  id: string
+  missionInstanceId: string
+  completedAt?: string
+  rewardAwardedAt?: string
+}
+
+type MissionTargetImagePayload = {
+  trackImages: Record<string, string>
+  albumImages: Record<string, string>
+  albumTracks: Record<
+    string,
+    Array<{
+      key: string
+      title: string
+      artistName: string
+    }>
+  >
+}
+
 type UserMissionProgressDoc = {
   _id: Types.ObjectId
   missionInstanceId: Types.ObjectId
@@ -282,6 +314,54 @@ function toTargetProgressMap(
   }
 
   return value
+}
+
+function serializeMissionInstance(instance: MissionInstanceDoc): CachedMissionInstance {
+  return {
+    ...instance,
+    id: String(instance._id),
+    startsAt: instance.startsAt.toISOString(),
+    endsAt: instance.endsAt.toISOString(),
+    updatedAt: instance.updatedAt.toISOString()
+  }
+}
+
+function deserializeMissionInstance(instance: CachedMissionInstance): MissionInstanceDoc {
+  return {
+    ...instance,
+    _id: new Types.ObjectId(instance.id),
+    startsAt: new Date(instance.startsAt),
+    endsAt: new Date(instance.endsAt),
+    updatedAt: new Date(instance.updatedAt)
+  }
+}
+
+function serializeSharedMissionProgress(doc: SharedMissionProgressDoc): CachedSharedMissionProgress {
+  return {
+    ...doc,
+    id: String(doc._id),
+    missionInstanceId: String(doc.missionInstanceId),
+    completedAt: doc.completedAt?.toISOString(),
+    rewardAwardedAt: doc.rewardAwardedAt?.toISOString()
+  }
+}
+
+function deserializeSharedMissionProgress(doc: CachedSharedMissionProgress): SharedMissionProgressDoc {
+  return {
+    ...doc,
+    _id: new Types.ObjectId(doc.id),
+    missionInstanceId: new Types.ObjectId(doc.missionInstanceId),
+    completedAt: doc.completedAt ? new Date(doc.completedAt) : undefined,
+    rewardAwardedAt: doc.rewardAwardedAt ? new Date(doc.rewardAwardedAt) : undefined
+  }
+}
+
+function toMissionTargetImageMaps(payload: MissionTargetImagePayload): MissionTargetImageMaps {
+  return {
+    trackImages: new Map(Object.entries(payload.trackImages)),
+    albumImages: new Map(Object.entries(payload.albumImages)),
+    albumTracks: new Map(Object.entries(payload.albumTracks))
+  }
 }
 
 function isEligibleTrack(track: CatalogTrackDoc) {
@@ -554,6 +634,38 @@ async function getCurrentMissionInstances(): Promise<MissionInstanceDoc[]> {
   }).lean()) as unknown as MissionInstanceDoc[]
 
   return sortMissionInstances(instances)
+}
+
+const getCachedCurrentMissionInstancesPayload = unstable_cache(async () => {
+  await connectToDatabase()
+  const instances = await getCurrentMissionInstances()
+
+  return instances.map(serializeMissionInstance)
+}, ["missions:current-instances:v1"], {
+  revalidate: sharedCacheRevalidateSeconds,
+  tags: [cacheTags.missions, cacheTags.missionInstances]
+})
+
+async function getCurrentMissionInstancesForRead() {
+  const cachedInstances = (await getCachedCurrentMissionInstancesPayload()).map(deserializeMissionInstance)
+
+  if (cachedInstances.length > 0) {
+    return cachedInstances
+  }
+
+  const ensuredInstances = await ensureCurrentMissionInstances()
+
+  if (ensuredInstances.length > 0) {
+    revalidateCacheTags(
+      cacheTags.missions,
+      cacheTags.missionInstances,
+      cacheTags.missionAssets,
+      cacheTags.missionSharedProgress,
+      cacheTags.missionAdmin
+    )
+  }
+
+  return ensuredInstances
 }
 
 async function selectTracksForCell(missionCellKey: MissionCellKey, periodKey: string) {
@@ -858,6 +970,32 @@ async function getSharedProgressMap(stateKey: string | undefined, instances: Mis
   return new Map(progressDocs.map((progress) => [`${String(progress.missionInstanceId)}:${progress.scopeKey}`, progress]))
 }
 
+const getCachedSharedMissionProgressPayload = unstable_cache(
+  async (stateKey: string | null) => {
+    await connectToDatabase()
+
+    const instances = (await getCachedCurrentMissionInstancesPayload()).map(deserializeMissionInstance)
+
+    if (instances.length === 0) {
+      return [] as CachedSharedMissionProgress[]
+    }
+
+    const scopeKeys = [INDIA_SCOPE_KEY, ...(stateKey ? [stateKey] : [])]
+    const progressDocs = (await SharedMissionProgressModel.find({
+      schemaVersion: MISSION_SCHEMA_VERSION,
+      missionInstanceId: { $in: instances.map((instance) => instance._id) },
+      scopeKey: { $in: scopeKeys }
+    }).lean()) as unknown as SharedMissionProgressDoc[]
+
+    return progressDocs.map(serializeSharedMissionProgress)
+  },
+  ["missions:shared-progress:v1"],
+  {
+    revalidate: sharedCacheRevalidateSeconds,
+    tags: [cacheTags.missions, cacheTags.missionSharedProgress]
+  }
+)
+
 async function getMissionContributionMap(userId: Types.ObjectId, instances: MissionInstanceDoc[]) {
   const docs = (await MissionContributionModel.find({
     schemaVersion: MISSION_SCHEMA_VERSION,
@@ -945,7 +1083,7 @@ function buildTargetViews(
   })
 }
 
-async function buildMissionTargetImageMaps(instances: MissionInstanceDoc[]): Promise<MissionTargetImageMaps> {
+async function buildMissionTargetImagePayload(instances: MissionInstanceDoc[]): Promise<MissionTargetImagePayload> {
   const trackKeys = new Set<string>()
   const albumKeys = new Set<string>()
 
@@ -981,17 +1119,17 @@ async function buildMissionTargetImageMaps(instances: MissionInstanceDoc[]): Pro
   ])
 
   return {
-    trackImages: new Map(
+    trackImages: Object.fromEntries(
       (tracks as Array<{ spotifyId: string; thumbnails?: { small?: string; medium?: string; large?: string } }>)
         .map((track) => [track.spotifyId, track.thumbnails?.medium ?? track.thumbnails?.large ?? track.thumbnails?.small])
         .filter((entry): entry is [string, string] => Boolean(entry[1]))
     ),
-    albumImages: new Map(
+    albumImages: Object.fromEntries(
       (albums as Array<{ spotifyId: string; coverImage?: string }>)
         .map((album) => [album.spotifyId, album.coverImage])
         .filter((entry): entry is [string, string] => Boolean(entry[1]))
     ),
-    albumTracks: new Map(
+    albumTracks: Object.fromEntries(
       (
         albums as Array<{
           spotifyId: string
@@ -1009,20 +1147,56 @@ async function buildMissionTargetImageMaps(instances: MissionInstanceDoc[]): Pro
   }
 }
 
+const getCachedMissionTargetImagePayload = unstable_cache(async () => {
+  await connectToDatabase()
+  const instances = (await getCachedCurrentMissionInstancesPayload()).map(deserializeMissionInstance)
+
+  if (instances.length === 0) {
+    return {
+      trackImages: {},
+      albumImages: {},
+      albumTracks: {}
+    } satisfies MissionTargetImagePayload
+  }
+
+  return buildMissionTargetImagePayload(instances)
+}, ["missions:target-assets:v1"], {
+  revalidate: sharedCacheRevalidateSeconds,
+  tags: [cacheTags.missions, cacheTags.missionAssets, cacheTags.catalog]
+})
+
 async function buildMissionCardsForUser(
   user: Awaited<ReturnType<typeof getCurrentUserRecord>>
 ): Promise<MissionCard[]> {
-  await ensureCurrentMissionInstances()
-
-  const instances = await getCurrentMissionInstances()
+  const instances = await getCurrentMissionInstancesForRead()
   const stateKey = user.region?.state ? buildStateKey(user.region.state) : undefined
-  const [userProgressMap, sharedProgressMap, contributionMap, imageMaps, playedTrackSets] = await Promise.all([
+  const cachedInstancesPayload = await getCachedCurrentMissionInstancesPayload()
+  const canUseSharedMissionCaches =
+    cachedInstancesPayload.length === instances.length &&
+    cachedInstancesPayload.every((instance, index) => instance.id === String(instances[index]?._id))
+
+  const [userProgressMap, contributionMap, playedTrackSets, sharedProgressSource, imageSource] = await Promise.all([
     getMissionProgressMap(user._id, instances),
-    getSharedProgressMap(stateKey, instances),
     getMissionContributionMap(user._id, instances),
-    buildMissionTargetImageMaps(instances),
-    getUserPlayedTrackSetsForInstances(user._id, instances)
+    getUserPlayedTrackSetsForInstances(user._id, instances),
+    canUseSharedMissionCaches
+      ? getCachedSharedMissionProgressPayload(stateKey ?? null)
+      : getSharedProgressMap(stateKey, instances),
+    canUseSharedMissionCaches
+      ? getCachedMissionTargetImagePayload()
+      : buildMissionTargetImagePayload(instances)
   ])
+  const sharedProgressMap =
+    sharedProgressSource instanceof Map
+      ? sharedProgressSource
+      : new Map(
+          sharedProgressSource.map((progress) => {
+            const hydratedProgress = deserializeSharedMissionProgress(progress)
+
+            return [`${String(hydratedProgress.missionInstanceId)}:${hydratedProgress.scopeKey}`, hydratedProgress] as const
+          })
+        )
+  const imageMaps = toMissionTargetImageMaps(imageSource)
 
   return instances.map((instance) => {
     const userProgress = userProgressMap.get(String(instance._id))
@@ -1881,6 +2055,121 @@ export async function listMissionCards(): Promise<MissionCard[]> {
   return buildMissionCardsForUser(user)
 }
 
+export async function listMissionPreviewCards(): Promise<MissionCard[]> {
+  const instances = await getCurrentMissionInstancesForRead()
+  const [sharedProgressPayload, imagePayload] = await Promise.all([
+    getCachedSharedMissionProgressPayload(null),
+    getCachedMissionTargetImagePayload()
+  ])
+  const sharedProgressMap = new Map(
+    sharedProgressPayload.map((progress) => {
+      const hydratedProgress = deserializeSharedMissionProgress(progress)
+
+      return [`${String(hydratedProgress.missionInstanceId)}:${hydratedProgress.scopeKey}`, hydratedProgress] as const
+    })
+  )
+  const imageMaps = toMissionTargetImageMaps(imagePayload)
+
+  return instances.map((instance) => {
+    const indiaProgress = sharedProgressMap.get(`${String(instance._id)}:${INDIA_SCOPE_KEY}`)
+
+    if (instance.missionKind === "individual_personal") {
+      const targetProgress = buildTargetViews(instance.targetConfig.targets, {}, imageMaps)
+      const focus = summarizeFocus(targetProgress.map((target) => target.title))
+
+      return {
+        id: String(instance._id),
+        missionCellKey: instance.missionCellKey,
+        missionKind: instance.missionKind,
+        mechanicType: instance.mechanicType,
+        cadence: instance.cadence,
+        title: instance.title,
+        description: instance.description,
+        startsAt: instance.startsAt.toISOString(),
+        endsAt: instance.endsAt.toISOString(),
+        periodKey: instance.periodKey,
+        goalUnits: instance.goalUnits,
+        rewardPoints: instance.rewardPoints,
+        rewardLabel: `${instance.rewardPoints} points`,
+        selectionMode: instance.selectionMode,
+        progressScopeType: "user",
+        aggregateProgress: 0,
+        userContribution: 0,
+        completionState: "in_progress",
+        focus,
+        scopeLabel: "You",
+        targets: targetProgress
+      } satisfies MissionCard
+    }
+
+    if (instance.missionKind === "state_shared") {
+      const targetProgress = buildTargetViews(instance.targetConfig.targets, {}, imageMaps)
+      const focus = summarizeFocus(targetProgress.map((target) => target.title))
+
+      return {
+        id: String(instance._id),
+        missionCellKey: instance.missionCellKey,
+        missionKind: instance.missionKind,
+        mechanicType: instance.mechanicType,
+        cadence: instance.cadence,
+        title: instance.title,
+        description: instance.description,
+        startsAt: instance.startsAt.toISOString(),
+        endsAt: instance.endsAt.toISOString(),
+        periodKey: instance.periodKey,
+        goalUnits: instance.goalUnits,
+        rewardPoints: instance.rewardPoints,
+        rewardLabel: `${instance.rewardPoints} state points`,
+        selectionMode: instance.selectionMode,
+        progressScopeType: "state",
+        aggregateProgress: 0,
+        userContribution: 0,
+        contributorCount: 0,
+        completionState: "locked",
+        focus,
+        scopeLabel: "Your State",
+        targets: targetProgress
+      } satisfies MissionCard
+    }
+
+    const targetProgress = buildTargetViews(
+      instance.targetConfig.targets,
+      toTargetProgressMap(indiaProgress?.targetProgress),
+      imageMaps
+    )
+    const focus = summarizeFocus(targetProgress.map((target) => target.title))
+    const progressValue = indiaProgress?.progressValue ?? 0
+
+    return {
+      id: String(instance._id),
+      missionCellKey: instance.missionCellKey,
+      missionKind: instance.missionKind,
+      mechanicType: instance.mechanicType,
+      cadence: instance.cadence,
+      title: instance.title,
+      description: instance.description,
+      startsAt: instance.startsAt.toISOString(),
+      endsAt: instance.endsAt.toISOString(),
+      periodKey: instance.periodKey,
+      goalUnits: instance.goalUnits,
+      rewardPoints: instance.rewardPoints,
+      rewardLabel: `${instance.rewardPoints} points`,
+      selectionMode: instance.selectionMode,
+      progressScopeType: "india",
+      aggregateProgress: progressValue,
+      userContribution: 0,
+      contributorCount: indiaProgress?.contributorCount ?? 0,
+      completionState:
+        progressValue >= instance.goalUnits || Boolean(indiaProgress?.completedAt)
+          ? "completed"
+          : "in_progress",
+      focus,
+      scopeLabel: "All India",
+      targets: targetProgress
+    } satisfies MissionCard
+  })
+}
+
 function buildAdminMissionCard(
   instance: MissionInstanceDoc,
   sharedProgress?: SharedMissionProgressDoc | null
@@ -2088,11 +2377,31 @@ export async function getMissionPageState(): Promise<MissionPageState> {
 }
 
 export async function generateDailyMissionInstances(options: { force?: boolean } = {}) {
-  return ensureCurrentMissionInstances({ cadence: "daily", force: options.force ?? false })
+  const instances = await ensureCurrentMissionInstances({ cadence: "daily", force: options.force ?? false })
+
+  revalidateCacheTags(
+    cacheTags.missions,
+    cacheTags.missionInstances,
+    cacheTags.missionAssets,
+    cacheTags.missionSharedProgress,
+    cacheTags.missionAdmin
+  )
+
+  return instances
 }
 
 export async function generateWeeklyMissionInstances(options: { force?: boolean } = {}) {
-  return ensureCurrentMissionInstances({ cadence: "weekly", force: options.force ?? false })
+  const instances = await ensureCurrentMissionInstances({ cadence: "weekly", force: options.force ?? false })
+
+  revalidateCacheTags(
+    cacheTags.missions,
+    cacheTags.missionInstances,
+    cacheTags.missionAssets,
+    cacheTags.missionSharedProgress,
+    cacheTags.missionAdmin
+  )
+
+  return instances
 }
 
 export async function verifyCurrentUserMissions() {
@@ -2133,7 +2442,7 @@ export async function getMissionAdminState(): Promise<MissionAdminState> {
         .sort({ updatedAt: -1 })
         .select({ updatedAt: 1 })
         .lean() as unknown as Promise<{ updatedAt?: Date } | null>,
-      getCurrentMissionInstances()
+      getCurrentMissionInstancesForRead()
     ])
 
   const trackOptionMap = new Map(trackOptions.map((option) => [option.key, option] as const))
@@ -2392,6 +2701,14 @@ export async function upsertMissionOverrideForNextPeriod(input: {
 
   await clearLegacyOverrideIfPresent(input.missionCellKey, input.mechanicType, period.periodKey)
 
+  revalidateCacheTags(
+    cacheTags.missions,
+    cacheTags.missionInstances,
+    cacheTags.missionAssets,
+    cacheTags.missionSharedProgress,
+    cacheTags.missionAdmin
+  )
+
   return getMissionAdminState()
 }
 
@@ -2412,6 +2729,14 @@ export async function clearMissionOverrideForNextPeriod(
     periodKey: period.periodKey
   })
   await clearLegacyOverrideIfPresent(missionCellKey, mechanicType, period.periodKey)
+
+  revalidateCacheTags(
+    cacheTags.missions,
+    cacheTags.missionInstances,
+    cacheTags.missionAssets,
+    cacheTags.missionSharedProgress,
+    cacheTags.missionAdmin
+  )
 
   return getMissionAdminState()
 }

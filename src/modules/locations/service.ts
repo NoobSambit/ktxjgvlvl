@@ -1,4 +1,6 @@
 import type { Types } from "mongoose"
+import { unstable_cache } from "next/cache"
+import { cacheTags, sharedCacheRevalidateSeconds } from "@/platform/cache/shared"
 import { requireAuthenticatedUserRecord } from "@/platform/auth/current-user"
 import { LocationPlaceModel, LocationStateModel } from "@/platform/db/models/locations"
 import { UserModel } from "@/platform/db/models/user"
@@ -281,7 +283,7 @@ export async function getLocationPlaceByKey(placeKey: string) {
   return place ? toPlaceView(place) : null
 }
 
-export async function getLocationRegistrySummary() {
+const getLocationRegistrySummaryCached = unstable_cache(async () => {
   await connectToDatabase()
 
   const [stateCount, placeCount, latestState, latestPlace] = await Promise.all([
@@ -302,6 +304,13 @@ export async function getLocationRegistrySummary() {
       latestPlace?.updatedAt?.toISOString?.() ??
       latestState?.updatedAt?.toISOString?.()
   }
+}, ["locations:registry-summary:v1"], {
+  revalidate: sharedCacheRevalidateSeconds,
+  tags: [cacheTags.locationsRegistry]
+})
+
+export async function getLocationRegistrySummary() {
+  return getLocationRegistrySummaryCached()
 }
 
 function getHostingSuggestion(headersLike: Headers) {

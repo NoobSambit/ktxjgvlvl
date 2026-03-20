@@ -1,7 +1,9 @@
+import { unstable_cache } from "next/cache"
+import { cacheTags, sharedCacheRevalidateSeconds } from "@/platform/cache/shared"
 import { fetchKworbSnapshot } from "@/platform/integrations/charts/kworb"
 import type { ChartCard } from "@/modules/charts/types"
 
-export async function listChartCards(): Promise<ChartCard[]> {
+const listChartCardsCached = unstable_cache(async (): Promise<ChartCard[]> => {
   const snapshot = await fetchKworbSnapshot()
 
   return [
@@ -12,4 +14,11 @@ export async function listChartCards(): Promise<ChartCard[]> {
       entries: snapshot.entries
     }
   ]
+}, ["charts:cards:v1"], {
+  revalidate: sharedCacheRevalidateSeconds,
+  tags: [cacheTags.charts]
+})
+
+export async function listChartCards(): Promise<ChartCard[]> {
+  return listChartCardsCached()
 }

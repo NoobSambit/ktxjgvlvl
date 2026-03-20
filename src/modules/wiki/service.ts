@@ -1,3 +1,6 @@
+import { unstable_cache } from "next/cache"
+import { cacheTags, sharedCacheRevalidateSeconds } from "@/platform/cache/shared"
+
 export type WikiPageView = {
   slug: string
   title: string
@@ -32,6 +35,11 @@ const seededWiki: WikiPageView[] = [
   }
 ]
 
+const listWikiPagesCached = unstable_cache(async () => seededWiki, ["wiki:v1"], {
+  revalidate: sharedCacheRevalidateSeconds,
+  tags: [cacheTags.wiki]
+})
+
 export async function listWikiPages() {
-  return seededWiki
+  return listWikiPagesCached()
 }

@@ -1,4 +1,5 @@
 import { Types } from "mongoose"
+import { cacheTags, revalidateCacheTags } from "@/platform/cache/shared"
 import { requireAuthenticatedUserRecord } from "@/platform/auth/current-user"
 import { UserModel } from "@/platform/db/models/user"
 import { CatalogTrackModel } from "@/platform/db/models/catalog"
@@ -356,6 +357,17 @@ async function syncTrackerConnectionActivity(
   if (options.materializeAfter !== false) {
     await materializeLeaderboards()
     await materializeLocationActivity()
+    revalidateCacheTags(
+      cacheTags.leaderboards,
+      cacheTags.leaderboardsStatus,
+      cacheTags.activityMap,
+      cacheTags.activityMapDaily,
+      cacheTags.activityMapWeekly,
+      cacheTags.activityMapAdmin,
+      cacheTags.adminOverview,
+      cacheTags.missions,
+      cacheTags.missionSharedProgress
+    )
   }
 
   return {
@@ -443,6 +455,17 @@ export async function syncVerifiedTrackerConnections() {
 
   await materializeLeaderboards()
   await materializeLocationActivity()
+  revalidateCacheTags(
+    cacheTags.leaderboards,
+    cacheTags.leaderboardsStatus,
+    cacheTags.activityMap,
+    cacheTags.activityMapDaily,
+    cacheTags.activityMapWeekly,
+    cacheTags.activityMapAdmin,
+    cacheTags.adminOverview,
+    cacheTags.missions,
+    cacheTags.missionSharedProgress
+  )
 
   logTrackerSync("tracker_sync_materialization_completed", {
     durationMs: Date.now() - materializationStartedAt

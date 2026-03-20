@@ -1,3 +1,6 @@
+import { unstable_cache } from "next/cache"
+import { cacheTags, sharedCacheRevalidateSeconds } from "@/platform/cache/shared"
+
 export type FanProjectView = {
   slug: string
   title: string
@@ -38,6 +41,11 @@ const seededProjects: FanProjectView[] = [
   }
 ]
 
+const listFanProjectsCached = unstable_cache(async () => seededProjects, ["fan-projects:v1"], {
+  revalidate: sharedCacheRevalidateSeconds,
+  tags: [cacheTags.fanProjects]
+})
+
 export async function listFanProjects() {
-  return seededProjects
+  return listFanProjectsCached()
 }

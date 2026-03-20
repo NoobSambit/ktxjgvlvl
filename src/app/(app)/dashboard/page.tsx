@@ -1,5 +1,6 @@
 import Link from "next/link"
 import type { LucideIcon } from "lucide-react"
+import { Suspense, cache } from "react"
 import {
   ArrowRight,
   Award,
@@ -10,6 +11,14 @@ import {
   Users
 } from "lucide-react"
 import { ActivityMapPanel } from "@/components/activity-map/activity-map-panel"
+import {
+  ActivityMapPanelSkeleton,
+  DashboardHeaderPanelSkeleton,
+  EventPanelSkeleton,
+  LeaderboardPanelSkeleton,
+  MissionControlPanelSkeleton,
+  QuickReadsPanelSkeleton
+} from "@/components/dashboard/dashboard-loading"
 import { QuickReadsPanel } from "@/components/dashboard/quick-reads-panel"
 import { DashboardPanel, DashboardPanelHeader, DashboardPill } from "@/components/dashboard/dashboard-shell"
 import { MissionControlPanel } from "@/components/dashboard/mission-control-panel"
@@ -375,41 +384,91 @@ function LeaderboardPanel({ board }: { board?: LeaderboardBoardView }) {
   )
 }
 
-export default async function DashboardPage() {
-  const [missionState, boards, events, guides, dailyActivityMap] = await Promise.all([
-    getMissionPageState(),
-    listLeaderboards(),
-    listEvents(),
-    listGuideQuickReads(),
-    getActivityMapView("daily")
-  ])
-
+const getCachedMissionState = cache(async () => getMissionPageState())
+const getCachedLeaderboards = cache(async () => listLeaderboards())
+const getCachedEvents = cache(async () => listEvents())
+const getCachedGuides = cache(async () => listGuideQuickReads())
+const getCachedDailyActivityMap = cache(async () => getActivityMapView("daily"))
+const getCachedProfile = cache(async () => {
+  const [missionState, boards] = await Promise.all([getCachedMissionState(), getCachedLeaderboards()])
   const missions = [...missionState.weekly, ...missionState.daily]
-  const profile = await getCurrentUserProfile({ boards, missions })
+  return getCurrentUserProfile({ boards, missions })
+})
+
+async function DashboardHeaderSection() {
+  const [missionState, profile] = await Promise.all([getCachedMissionState(), getCachedProfile()])
+
+  return <DashboardHeaderPanel missionState={missionState} profile={profile} />
+}
+
+async function QuickReadsSection() {
+  const guides = await getCachedGuides()
+
+  return <QuickReadsPanel guides={guides} />
+}
+
+async function MissionControlSection() {
+  const missionState = await getCachedMissionState()
+
+  return <MissionControlPanel missionState={missionState} />
+}
+
+async function EventSection() {
+  const events = await getCachedEvents()
+
+  return <EventPanel events={events} />
+}
+
+async function ActivityMapSection() {
+  const dailyActivityMap = await getCachedDailyActivityMap()
+
+  return (
+    <ActivityMapPanel
+      description="See how India is moving right now. The map uses the same verified stream and mission data that powers your leaderboard view."
+      initialMap={dailyActivityMap}
+      title="Track India activity by state and hotspot"
+      variant="dashboard"
+    />
+  )
+}
+
+async function LeaderboardSection() {
+  const boards = await getCachedLeaderboards()
   const individualBoard =
     boards.find((board) => board.boardType === "individual" && board.period === "weekly") ?? boards[0]
 
+  return <LeaderboardPanel board={individualBoard} />
+}
+
+export default function DashboardPage() {
   return (
     <div className="relative isolate">
       <div className="relative z-10 space-y-3 sm:space-y-6 lg:space-y-8">
         <section className="space-y-3 sm:space-y-4">
-          <DashboardHeaderPanel missionState={missionState} profile={profile} />
-          <QuickReadsPanel guides={guides} />
+          <Suspense fallback={<DashboardHeaderPanelSkeleton />}>
+            <DashboardHeaderSection />
+          </Suspense>
+          <Suspense fallback={<QuickReadsPanelSkeleton />}>
+            <QuickReadsSection />
+          </Suspense>
         </section>
 
         <section className="grid items-start gap-3 sm:gap-5 xl:grid-cols-[minmax(0,1.35fr)_300px]">
-          <MissionControlPanel missionState={missionState} />
-          <EventPanel events={events} />
+          <Suspense fallback={<MissionControlPanelSkeleton />}>
+            <MissionControlSection />
+          </Suspense>
+          <Suspense fallback={<EventPanelSkeleton />}>
+            <EventSection />
+          </Suspense>
         </section>
 
-        <ActivityMapPanel
-          description="See how India is moving right now. The map uses the same verified stream and mission data that powers your leaderboard view."
-          initialMap={dailyActivityMap}
-          title="Track India activity by state and hotspot"
-          variant="dashboard"
-        />
+        <Suspense fallback={<ActivityMapPanelSkeleton />}>
+          <ActivityMapSection />
+        </Suspense>
 
-        <LeaderboardPanel board={individualBoard} />
+        <Suspense fallback={<LeaderboardPanelSkeleton />}>
+          <LeaderboardSection />
+        </Suspense>
       </div>
     </div>
   )
