@@ -1,5 +1,4 @@
-import { unstable_cache } from "next/cache"
-import { cacheTags, sharedCacheRevalidateSeconds } from "@/platform/cache/shared"
+import { cacheTags, sharedCacheRevalidateSeconds, unstable_cache } from "@/platform/cache/shared"
 import { jobKeys } from "@/platform/queues/job-types"
 import { getActivityMapAdminSummary } from "@/modules/activity-map/service"
 import { getLocationRegistrySummary } from "@/modules/locations/service"

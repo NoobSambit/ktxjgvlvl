@@ -1,6 +1,10 @@
 import mongoose from "mongoose"
-import { unstable_cache } from "next/cache"
-import { cacheTags, revalidateCacheTags, sharedCacheRevalidateSeconds } from "@/platform/cache/shared"
+import {
+  cacheTags,
+  revalidateCacheTags,
+  sharedCacheRevalidateSeconds,
+  unstable_cache
+} from "@/platform/cache/shared"
 import { CatalogAlbumModel, CatalogTrackModel } from "@/platform/db/models/catalog"
 import { connectToDatabase } from "@/platform/db/mongoose"
 import { env } from "@/platform/validation/env"

@@ -1,5 +1,4 @@
-import { unstable_cache } from "next/cache"
-import { cacheTags, sharedCacheRevalidateSeconds } from "@/platform/cache/shared"
+import { cacheTags, sharedCacheRevalidateSeconds, unstable_cache } from "@/platform/cache/shared"
 
 export type FanProjectView = {
   slug: string

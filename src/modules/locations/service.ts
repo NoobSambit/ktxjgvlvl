@@ -1,6 +1,5 @@
 import type { Types } from "mongoose"
-import { unstable_cache } from "next/cache"
-import { cacheTags, sharedCacheRevalidateSeconds } from "@/platform/cache/shared"
+import { cacheTags, sharedCacheRevalidateSeconds, unstable_cache } from "@/platform/cache/shared"
 import { requireAuthenticatedUserRecord } from "@/platform/auth/current-user"
 import { LocationPlaceModel, LocationStateModel } from "@/platform/db/models/locations"
 import { UserModel } from "@/platform/db/models/user"

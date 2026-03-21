@@ -1,4 +1,39 @@
-import { revalidateTag } from "next/cache"
+import {
+  revalidateTag as nextRevalidateTag,
+  unstable_cache as nextUnstableCache
+} from "next/cache"
+
+const nextCacheRuntimeErrorMarkers = [
+  "incrementalCache missing in unstable_cache",
+  "static generation store missing in revalidateTag"
+]
+
+function isMissingNextCacheRuntime(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error)
+  return nextCacheRuntimeErrorMarkers.some((marker) => message.includes(marker))
+}
+
+// Standalone scripts import the same services as Next routes, but they do not
+// boot the incremental cache runtime that backs next/cache.
+export function unstable_cache<T extends (...args: any[]) => Promise<any>>(
+  callback: T,
+  keyParts?: Parameters<typeof nextUnstableCache>[1],
+  options?: Parameters<typeof nextUnstableCache>[2]
+): T {
+  const cachedCallback = nextUnstableCache(callback, keyParts, options) as T
+
+  return (async (...args: Parameters<T>): Promise<Awaited<ReturnType<T>>> => {
+    try {
+      return await cachedCallback(...args)
+    } catch (error) {
+      if (!isMissingNextCacheRuntime(error)) {
+        throw error
+      }
+
+      return callback(...args)
+    }
+  }) as T
+}
 
 export const sharedCacheRevalidateSeconds = 60 * 15
 
@@ -33,6 +68,12 @@ export function revalidateCacheTags(...tags: Array<string | undefined | null>) {
   const uniqueTags = new Set(tags.filter((tag): tag is string => Boolean(tag)))
 
   for (const tag of uniqueTags) {
-    revalidateTag(tag)
+    try {
+      nextRevalidateTag(tag)
+    } catch (error) {
+      if (!isMissingNextCacheRuntime(error)) {
+        throw error
+      }
+    }
   }
 }

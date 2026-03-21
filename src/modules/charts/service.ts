@@ -1,5 +1,4 @@
-import { unstable_cache } from "next/cache"
-import { cacheTags, sharedCacheRevalidateSeconds } from "@/platform/cache/shared"
+import { cacheTags, sharedCacheRevalidateSeconds, unstable_cache } from "@/platform/cache/shared"
 import { fetchKworbSnapshot } from "@/platform/integrations/charts/kworb"
 import type { ChartCard } from "@/modules/charts/types"
 

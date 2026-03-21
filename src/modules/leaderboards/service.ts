@@ -1,6 +1,10 @@
 import { Types } from "mongoose"
-import { unstable_cache } from "next/cache"
-import { cacheTags, revalidateCacheTags, sharedCacheRevalidateSeconds } from "@/platform/cache/shared"
+import {
+  cacheTags,
+  revalidateCacheTags,
+  sharedCacheRevalidateSeconds,
+  unstable_cache
+} from "@/platform/cache/shared"
 import { getCurrentUserRecord } from "@/platform/auth/current-user"
 import {
   LeaderboardBoardModel,
