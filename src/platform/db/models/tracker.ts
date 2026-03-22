@@ -2,7 +2,7 @@ import { Schema, model, models } from "mongoose"
 
 const trackerConnectionSchema = new Schema(
   {
-    userId: { type: Schema.Types.ObjectId, required: true, index: true, ref: "User" },
+    userId: { type: Schema.Types.ObjectId, required: true, ref: "User" },
     provider: { type: String, required: true, index: true },
     username: { type: String, required: true },
     verificationStatus: {
@@ -22,6 +22,7 @@ const trackerConnectionSchema = new Schema(
 trackerConnectionSchema.index({ provider: 1, username: 1 })
 trackerConnectionSchema.index({ userId: 1 }, { unique: true })
 trackerConnectionSchema.index({ userId: 1, provider: 1 }, { unique: true })
+trackerConnectionSchema.index({ verificationStatus: 1, updatedAt: -1 })
 
 const regionConfirmationSchema = new Schema(
   {

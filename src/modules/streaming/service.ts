@@ -8,7 +8,11 @@ import { TrackerConnectionModel } from "@/platform/db/models/tracker"
 import { connectToDatabase } from "@/platform/db/mongoose"
 import { buildStateKey } from "@/platform/integrations/geo/state-scopes"
 import { getTrackerAdapter } from "@/platform/integrations/trackers"
-import { getIndiaPeriod, type MissionCadence } from "@/platform/time/india-periods"
+import {
+  getCurrentIndiaPeriods,
+  getIndiaPeriod,
+  type MissionCadence
+} from "@/platform/time/india-periods"
 import {
   buildLocationActivityEvents,
   materializeLocationActivity,
@@ -16,7 +20,7 @@ import {
 } from "@/modules/activity-map/service"
 import { materializeLeaderboards, recordLeaderboardPointEvents } from "@/modules/leaderboards/service"
 import { getEffectivePlaceFromRegion, getStateScopeSource } from "@/modules/locations/service"
-import { recomputeMissionProgressForUser, ensureCurrentMissionInstances } from "@/modules/missions/service"
+import { recomputeMissionProgressForUsers } from "@/modules/missions/service"
 import { getStreamPointValue } from "@/modules/platform-settings/service"
 import {
   normalizeAlbumName,
@@ -35,6 +39,10 @@ type CatalogTrackMatcher = {
   normalizedTrackName: string
   normalizedArtistName: string
   normalizedAlbumName: string
+}
+
+type CatalogTrackMatcherIndex = {
+  byNormalizedTrackName: Map<string, CatalogTrackMatcher[]>
 }
 
 type TrackerConnectionDoc = {
@@ -61,6 +69,11 @@ type UserDoc = {
 }
 
 let cachedTrackMatchers: CatalogTrackMatcher[] | null = null
+let cachedTrackMatcherIndex: CatalogTrackMatcherIndex | null = null
+
+type SyncTrackerConnectionActivityResult = StreamingSyncSummary & {
+  missionRecomputeUser?: UserDoc
+}
 
 function toErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error)
@@ -77,8 +90,8 @@ function logTrackerSync(event: string, detail: Record<string, unknown>) {
 }
 
 async function loadBtsTrackMatchers() {
-  if (cachedTrackMatchers) {
-    return cachedTrackMatchers
+  if (cachedTrackMatcherIndex) {
+    return cachedTrackMatcherIndex
   }
 
   const tracks = await CatalogTrackModel.find({ isBTSFamily: true })
@@ -95,7 +108,19 @@ async function loadBtsTrackMatchers() {
     normalizedAlbumName: normalizeAlbumName(track.album)
   }))
 
-  return cachedTrackMatchers
+  const byNormalizedTrackName = new Map<string, CatalogTrackMatcher[]>()
+
+  for (const matcher of cachedTrackMatchers) {
+    const bucket = byNormalizedTrackName.get(matcher.normalizedTrackName) ?? []
+    bucket.push(matcher)
+    byNormalizedTrackName.set(matcher.normalizedTrackName, bucket)
+  }
+
+  cachedTrackMatcherIndex = {
+    byNormalizedTrackName
+  }
+
+  return cachedTrackMatcherIndex
 }
 
 async function getUserById(userId: Types.ObjectId) {
@@ -108,12 +133,12 @@ function matchCatalogTrack(
   trackName: string,
   artistName: string,
   albumName: string | undefined,
-  matchers: CatalogTrackMatcher[]
+  matcherIndex: CatalogTrackMatcherIndex
 ) {
   const normalizedName = normalizeTrackName(trackName)
   const normalizedArtist = normalizeArtistName(artistName)
   const normalizedAlbum = albumName ? normalizeAlbumName(albumName) : ""
-  const candidates = matchers.filter((matcher) => matcher.normalizedTrackName === normalizedName)
+  const candidates = matcherIndex.byNormalizedTrackName.get(normalizedName) ?? []
   const exactArtistMatches = candidates.filter(
     (candidate) => candidate.normalizedArtistName === normalizedArtist
   )
@@ -224,7 +249,12 @@ function buildStreamPointEvents(input: {
 
 async function syncTrackerConnectionActivity(
   connection: TrackerConnectionDoc,
-  options: { materializeAfter?: boolean } = {}
+  options: {
+    materializeAfter?: boolean
+    deferMissionRecompute?: boolean
+    streamPointValue?: number
+    currentPeriods?: ReturnType<typeof getCurrentIndiaPeriods>
+  } = {}
 ) {
   const adapter = getTrackerAdapter(connection.provider)
 
@@ -242,12 +272,15 @@ async function syncTrackerConnectionActivity(
     username: connection.username,
     checkpoint: connection.lastCheckpoint
   })
-  const matchers = await loadBtsTrackMatchers()
-  const streamPointValue = await getStreamPointValue()
+  const matcherIndex = await loadBtsTrackMatchers()
+  const streamPointValue = options.streamPointValue ?? (await getStreamPointValue())
+  const currentPeriods = options.currentPeriods ?? getCurrentIndiaPeriods()
   const streamWriteOperations: Parameters<typeof StreamEventModel.bulkWrite>[0] = []
   const pointEvents: Parameters<typeof recordLeaderboardPointEvents>[0] = []
   const locationActivityEvents: ReturnType<typeof buildLocationActivityEvents> = []
   let scoredEvents = 0
+  let insertedPointEvents = 0
+  let hasCurrentMissionImpact = false
 
   for (const event of trackerResult.events) {
     const playedAt = new Date(event.playedAt)
@@ -255,7 +288,7 @@ async function syncTrackerConnectionActivity(
       event.trackName,
       event.artistName,
       event.albumName,
-      matchers
+      matcherIndex
     )
     const stateSource = getStateScopeSource(user.region)
     const stateKey = stateSource ? buildStateKey(stateSource) : undefined
@@ -298,6 +331,13 @@ async function syncTrackerConnectionActivity(
       continue
     }
 
+    if (
+      (playedAt >= currentPeriods.daily.startsAt && playedAt < currentPeriods.daily.endsAt) ||
+      (playedAt >= currentPeriods.weekly.startsAt && playedAt < currentPeriods.weekly.endsAt)
+    ) {
+      hasCurrentMissionImpact = true
+    }
+
     pointEvents.push(
       ...buildStreamPointEvents({
         user,
@@ -333,7 +373,8 @@ async function syncTrackerConnectionActivity(
 
   if (pointEvents.length > 0) {
     const pointResult = await recordLeaderboardPointEvents(pointEvents)
-    scoredEvents += Math.floor(pointResult.inserted / 4)
+    insertedPointEvents = pointResult.inserted
+    scoredEvents += Math.floor(insertedPointEvents / 4)
   }
 
   if (locationActivityEvents.length > 0) {
@@ -351,8 +392,9 @@ async function syncTrackerConnectionActivity(
     }
   )
 
-  await ensureCurrentMissionInstances()
-  await recomputeMissionProgressForUser(user as Awaited<ReturnType<typeof requireAuthenticatedUserRecord>>)
+  if (!options.deferMissionRecompute) {
+    await recomputeMissionProgressForUsers([user])
+  }
 
   if (options.materializeAfter !== false) {
     await materializeLeaderboards()
@@ -374,8 +416,11 @@ async function syncTrackerConnectionActivity(
     syncedEvents,
     scoredEvents,
     provider: connection.provider,
-    checkpoint: trackerResult.nextCheckpoint ?? connection.lastCheckpoint ?? null
-  } satisfies StreamingSyncSummary
+    checkpoint: trackerResult.nextCheckpoint ?? connection.lastCheckpoint ?? null,
+    ...(options.deferMissionRecompute && insertedPointEvents > 0 && hasCurrentMissionImpact
+      ? { missionRecomputeUser: user }
+      : {})
+  } satisfies SyncTrackerConnectionActivityResult
 }
 
 export async function syncVerifiedTrackerConnections() {
@@ -407,6 +452,9 @@ export async function syncVerifiedTrackerConnections() {
   let syncedEvents = 0
   let scoredEvents = 0
   let failedUsers = 0
+  const streamPointValue = await getStreamPointValue()
+  const currentPeriods = getCurrentIndiaPeriods()
+  const usersNeedingMissionRecompute = new Map<string, UserDoc>()
 
   for (const connection of uniqueConnections) {
     const connectionStartedAt = Date.now()
@@ -418,9 +466,21 @@ export async function syncVerifiedTrackerConnections() {
     })
 
     try {
-      const summary = await syncTrackerConnectionActivity(connection, { materializeAfter: false })
+      const summary = await syncTrackerConnectionActivity(connection, {
+        materializeAfter: false,
+        deferMissionRecompute: true,
+        streamPointValue,
+        currentPeriods
+      })
       syncedEvents += summary.syncedEvents
       scoredEvents += summary.scoredEvents
+
+      if (summary.missionRecomputeUser) {
+        usersNeedingMissionRecompute.set(
+          String(summary.missionRecomputeUser._id),
+          summary.missionRecomputeUser
+        )
+      }
 
       logTrackerSync("tracker_sync_connection_completed", {
         provider: connection.provider,
@@ -445,6 +505,20 @@ export async function syncVerifiedTrackerConnections() {
         error: toErrorMessage(error)
       })
     }
+  }
+
+  if (usersNeedingMissionRecompute.size > 0) {
+    const missionRecomputeStartedAt = Date.now()
+    logTrackerSync("tracker_sync_mission_recompute_started", {
+      affectedUserCount: usersNeedingMissionRecompute.size
+    })
+
+    await recomputeMissionProgressForUsers(Array.from(usersNeedingMissionRecompute.values()))
+
+    logTrackerSync("tracker_sync_mission_recompute_completed", {
+      affectedUserCount: usersNeedingMissionRecompute.size,
+      durationMs: Date.now() - missionRecomputeStartedAt
+    })
   }
 
   const materializationStartedAt = Date.now()

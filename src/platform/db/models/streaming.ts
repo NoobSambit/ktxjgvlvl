@@ -28,6 +28,8 @@ const streamEventSchema = new Schema(
 
 streamEventSchema.index({ provider: 1, providerUserKey: 1, providerEventKey: 1 }, { unique: true })
 streamEventSchema.index({ userId: 1, playedAt: -1 })
+streamEventSchema.index({ userId: 1, isBTSFamily: 1, playedAt: 1 })
+streamEventSchema.index({ stateKey: 1, isBTSFamily: 1, playedAt: 1 })
 streamEventSchema.index({ isBTSFamily: 1, playedAt: -1, stateKey: 1 })
 streamEventSchema.index({ isBTSFamily: 1, playedAt: -1, placeKey: 1 })
 

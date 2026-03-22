@@ -103,6 +103,7 @@ const MIN_ELIGIBLE_ALBUM_TRACKS = 6
 const INDIA_SCOPE_KEY = "india:all"
 const TRACK_VARIANT_DURATION_TOLERANCE_MS = 2_000
 const MISSION_SCHEMA_VERSION = 3
+const missionCadences: MissionCadence[] = ["daily", "weekly"]
 
 type CatalogTrackDoc = {
   _id: Types.ObjectId
@@ -241,6 +242,35 @@ type MissionContributionDoc = {
   stateKey?: string
   qualifiedAt?: Date
   rewardAwardedAt?: Date
+}
+
+export type MissionProgressUser = {
+  _id: Types.ObjectId
+  displayName: string
+  region?: {
+    stateKey?: string
+    state?: string
+    cityKey?: string
+    city?: string
+    fallbackCityKey?: string
+    fallbackCityLabel?: string
+  }
+}
+
+type MissionScopeGroups = Record<
+  MissionCadence,
+  {
+    individual: MissionInstanceDoc[]
+    state: MissionInstanceDoc[]
+    india: MissionInstanceDoc[]
+  }
+>
+
+type SharedMissionAggregate = {
+  progressValue: number
+  contributorCount: number
+  targetProgress: Record<string, number>
+  eventsByUserId: Map<string, StreamEventDoc[]>
 }
 
 type MissionOverrideDoc = {
@@ -1614,11 +1644,168 @@ async function requireUsersByIds(userIds: Types.ObjectId[]) {
   }>
 }
 
-async function recomputeIndividualMissionProgress(
-  user: Awaited<ReturnType<typeof getCurrentUserRecord>>,
-  mission: MissionInstanceDoc
+function groupCurrentMissionsByCadence(missions: MissionInstanceDoc[]): MissionScopeGroups {
+  const grouped: MissionScopeGroups = {
+    daily: { individual: [], state: [], india: [] },
+    weekly: { individual: [], state: [], india: [] }
+  }
+
+  for (const mission of missions) {
+    if (mission.missionKind === "individual_personal") {
+      grouped[mission.cadence].individual.push(mission)
+      continue
+    }
+
+    if (mission.missionKind === "state_shared") {
+      grouped[mission.cadence].state.push(mission)
+      continue
+    }
+
+    grouped[mission.cadence].india.push(mission)
+  }
+
+  return grouped
+}
+
+function groupStreamEventsByUserId(events: StreamEventDoc[]) {
+  const grouped = new Map<string, StreamEventDoc[]>()
+
+  for (const event of events) {
+    const userId = String(event.userId)
+    const bucket = grouped.get(userId) ?? []
+    bucket.push(event)
+    grouped.set(userId, bucket)
+  }
+
+  return grouped
+}
+
+function computeMissionContributionFromEvents(
+  events: StreamEventDoc[],
+  mission: MissionInstanceDoc,
+  trackEquivalenceData?: TrackEquivalenceData
 ) {
-  const events = await getRelevantStreamEvents({ userId: user._id }, mission.startsAt, mission.endsAt)
+  if (mission.mechanicType === "track_streams") {
+    const missionTrackMatchKeys = buildMissionTrackMatchKeySet(
+      mission.targetConfig.targets,
+      trackEquivalenceData
+    )
+
+    return {
+      contributionUnits: events.filter((event) =>
+        missionTrackMatchKeys.has(event.catalogTrackSpotifyId ?? "")
+      ).length,
+      qualifiedAt: getFirstMatchingTrackContributionAt(
+        events,
+        mission.targetConfig.targets,
+        trackEquivalenceData
+      )
+    }
+  }
+
+  const completionDetails = computeAlbumCompletionDetails(events, mission.targetConfig.targets)
+
+  return {
+    contributionUnits: Array.from(completionDetails.values()).reduce(
+      (sum, value) => sum + value.completed,
+      0
+    ),
+    qualifiedAt: Array.from(completionDetails.values())
+      .map((value) => value.completedAt)
+      .filter((value): value is Date => Boolean(value))
+      .sort((left, right) => left.getTime() - right.getTime())[0]
+  }
+}
+
+function computeSharedMissionAggregate(
+  events: StreamEventDoc[],
+  mission: MissionInstanceDoc,
+  trackEquivalenceData?: TrackEquivalenceData
+): SharedMissionAggregate {
+  const eventsByUserId = groupStreamEventsByUserId(events)
+  const targetProgress: Record<string, number> = {}
+  let progressValue = 0
+  let contributorCount = 0
+
+  if (mission.mechanicType === "track_streams") {
+    const missionTrackMatchKeys = buildMissionTrackMatchKeySet(
+      mission.targetConfig.targets,
+      trackEquivalenceData
+    )
+    const matchingEvents = events.filter((event) =>
+      missionTrackMatchKeys.has(event.catalogTrackSpotifyId ?? "")
+    )
+    const counts = countMatchingTrackStreams(
+      matchingEvents,
+      mission.targetConfig.targets,
+      trackEquivalenceData
+    )
+
+    for (const target of mission.targetConfig.targets) {
+      if (target.kind !== "track" || !target.trackKey) {
+        continue
+      }
+
+      const count = counts.get(target.trackKey) ?? 0
+      targetProgress[buildTrackTargetProgressKey(target.trackKey)] = count
+      progressValue += count
+    }
+
+    contributorCount = new Set(matchingEvents.map((event) => String(event.userId))).size
+
+    return {
+      progressValue,
+      contributorCount,
+      targetProgress,
+      eventsByUserId
+    }
+  }
+
+  const completedUserIds = new Set<string>()
+
+  for (const [userId, userEvents] of eventsByUserId.entries()) {
+    const completionMap = computeAlbumCompletionDetails(userEvents, mission.targetConfig.targets)
+    let userCompletedCount = 0
+
+    for (const target of mission.targetConfig.targets) {
+      if (target.kind !== "album" || !target.albumKey) {
+        continue
+      }
+
+      const completed = completionMap.get(target.albumKey)?.completed ?? 0
+      targetProgress[buildAlbumTargetProgressKey(target.albumKey)] =
+        (targetProgress[buildAlbumTargetProgressKey(target.albumKey)] ?? 0) + completed
+      userCompletedCount += completed
+    }
+
+    progressValue += userCompletedCount
+
+    if (userCompletedCount > 0) {
+      completedUserIds.add(userId)
+    }
+  }
+
+  contributorCount = completedUserIds.size
+
+  return {
+    progressValue,
+    contributorCount,
+    targetProgress,
+    eventsByUserId
+  }
+}
+
+async function recomputeIndividualMissionProgress(
+  user: MissionProgressUser,
+  mission: MissionInstanceDoc,
+  options: {
+    events?: StreamEventDoc[]
+    trackEquivalenceData?: TrackEquivalenceData
+  } = {}
+) {
+  const events =
+    options.events ??
+    (await getRelevantStreamEvents({ userId: user._id }, mission.startsAt, mission.endsAt))
   const existingProgress = (await UserMissionProgressModel.findOne({
     schemaVersion: MISSION_SCHEMA_VERSION,
     missionInstanceId: mission._id,
@@ -1628,7 +1815,9 @@ async function recomputeIndividualMissionProgress(
   const targetProgress: Record<string, number> = {}
   let progressValue = 0
   const trackEquivalenceData =
-    mission.mechanicType === "track_streams" ? await getTrackEquivalenceData() : undefined
+    mission.mechanicType === "track_streams"
+      ? options.trackEquivalenceData ?? (await getTrackEquivalenceData())
+      : undefined
 
   if (mission.mechanicType === "track_streams") {
     const counts = countMatchingTrackStreams(events, mission.targetConfig.targets, trackEquivalenceData)
@@ -1683,109 +1872,53 @@ async function recomputeIndividualMissionProgress(
   const typedProgress = progress.toObject() as unknown as UserMissionProgressDoc
 
   if (progressValue >= mission.goalUnits && !typedProgress.rewardAwardedAt) {
-    await awardPersonalMissionCompletion(user, mission, typedProgress)
+    await awardPersonalMissionCompletion(
+      user as Awaited<ReturnType<typeof getCurrentUserRecord>>,
+      mission,
+      typedProgress
+    )
   }
 }
 
-async function recomputeStateMissionProgress(
-  user: Awaited<ReturnType<typeof getCurrentUserRecord>>,
+async function recomputeStateMissionScope(input: {
   mission: MissionInstanceDoc
-) {
-  const stateSource = getStateScopeSource(user.region)
-
-  if (!stateSource || !user.region?.state) {
-    return
-  }
-
-  const stateKey = buildStateKey(stateSource)
-  const stateEvents = await getRelevantStreamEvents({ stateKey }, mission.startsAt, mission.endsAt)
+  stateScopeSource: string
+  stateLabel: string
+  scopeEvents: StreamEventDoc[]
+  affectedUsers: MissionProgressUser[]
+  trackEquivalenceData?: TrackEquivalenceData
+}) {
+  const stateKey = buildStateKey(input.stateScopeSource)
   const existingSharedProgress = (await SharedMissionProgressModel.findOne({
     schemaVersion: MISSION_SCHEMA_VERSION,
-    missionInstanceId: mission._id,
+    missionInstanceId: input.mission._id,
     scopeType: "state",
     scopeKey: stateKey
   }).lean()) as unknown as SharedMissionProgressDoc | null
-  const stateUsers = new Set(stateEvents.map((event) => String(event.userId)))
-  let progressValue = 0
-  const targetProgress: Record<string, number> = {}
-  let contributorCount = 0
-  const trackEquivalenceData =
-    mission.mechanicType === "track_streams" ? await getTrackEquivalenceData() : undefined
-  const missionTrackMatchKeys =
-    mission.mechanicType === "track_streams"
-      ? buildMissionTrackMatchKeySet(mission.targetConfig.targets, trackEquivalenceData)
-      : undefined
-
-  if (mission.mechanicType === "track_streams") {
-    const matchingEvents = stateEvents.filter((event) =>
-      missionTrackMatchKeys?.has(event.catalogTrackSpotifyId ?? "")
-    )
-    const counts = countMatchingTrackStreams(
-      matchingEvents,
-      mission.targetConfig.targets,
-      trackEquivalenceData
-    )
-
-    for (const target of mission.targetConfig.targets) {
-      if (target.kind !== "track" || !target.trackKey) {
-        continue
-      }
-
-      const count = counts.get(target.trackKey) ?? 0
-      targetProgress[buildTrackTargetProgressKey(target.trackKey)] = count
-      progressValue += count
-    }
-
-    contributorCount = new Set(matchingEvents.map((event) => String(event.userId))).size
-  } else {
-    const perUserAlbumCompletion = new Map<string, number>()
-    const completedUserIds = new Set<string>()
-
-    for (const userId of stateUsers) {
-      const userEvents = stateEvents.filter((event) => String(event.userId) === userId)
-      const completionMap = computeAlbumCompletionDetails(userEvents, mission.targetConfig.targets)
-      let userCompletedCount = 0
-
-      for (const target of mission.targetConfig.targets) {
-        if (target.kind !== "album" || !target.albumKey) {
-          continue
-        }
-
-        const completed = completionMap.get(target.albumKey)?.completed ?? 0
-        targetProgress[buildAlbumTargetProgressKey(target.albumKey)] =
-          (targetProgress[buildAlbumTargetProgressKey(target.albumKey)] ?? 0) + completed
-        userCompletedCount += completed
-      }
-
-      perUserAlbumCompletion.set(userId, userCompletedCount)
-
-      if (userCompletedCount > 0) {
-        completedUserIds.add(userId)
-      }
-    }
-
-    progressValue = Array.from(perUserAlbumCompletion.values()).reduce((sum, value) => sum + value, 0)
-    contributorCount = completedUserIds.size
-  }
+  const aggregate = computeSharedMissionAggregate(
+    input.scopeEvents,
+    input.mission,
+    input.trackEquivalenceData
+  )
 
   const completedAt =
-    progressValue >= mission.goalUnits
+    aggregate.progressValue >= input.mission.goalUnits
       ? existingSharedProgress?.completedAt ?? new Date()
       : undefined
   const sharedProgress = await SharedMissionProgressModel.findOneAndUpdate(
     {
       schemaVersion: MISSION_SCHEMA_VERSION,
-      missionInstanceId: mission._id,
+      missionInstanceId: input.mission._id,
       scopeType: "state",
       scopeKey: stateKey
     },
     {
       $set: {
-        scopeLabel: user.region.state,
-        progressValue,
-        goalUnits: mission.goalUnits,
-        contributorCount,
-        targetProgress,
+        scopeLabel: input.stateLabel,
+        progressValue: aggregate.progressValue,
+        goalUnits: input.mission.goalUnits,
+        contributorCount: aggregate.contributorCount,
+        targetProgress: aggregate.targetProgress,
         completedAt
       }
     },
@@ -1798,77 +1931,65 @@ async function recomputeStateMissionProgress(
 
   const typedProgress = sharedProgress.toObject() as unknown as SharedMissionProgressDoc
 
-  const userEvents = stateEvents.filter((event) => String(event.userId) === String(user._id))
-  const userAlbumCompletionDetails =
-    mission.mechanicType === "album_completions"
-      ? computeAlbumCompletionDetails(userEvents, mission.targetConfig.targets)
-      : null
-  const contributionUnits =
-    mission.mechanicType === "track_streams"
-      ? userEvents.filter((event) => missionTrackMatchKeys?.has(event.catalogTrackSpotifyId ?? "")).length
-      : Array.from(userAlbumCompletionDetails?.values() ?? []).reduce(
-          (sum, value) => sum + value.completed,
-          0
-        )
-  const qualifiedAt =
-    mission.mechanicType === "track_streams"
-      ? getFirstMatchingTrackContributionAt(
-          userEvents,
-          mission.targetConfig.targets,
-          trackEquivalenceData
-        )
-      : Array.from(userAlbumCompletionDetails?.values() ?? [])
-          .map((value) => value.completedAt)
-          .filter((value): value is Date => Boolean(value))
-          .sort((left, right) => left.getTime() - right.getTime())[0]
+  for (const user of input.affectedUsers) {
+    const userEvents = aggregate.eventsByUserId.get(String(user._id)) ?? []
+    const contribution = computeMissionContributionFromEvents(
+      userEvents,
+      input.mission,
+      input.trackEquivalenceData
+    )
 
-  await MissionContributionModel.findOneAndUpdate(
-    {
-      schemaVersion: MISSION_SCHEMA_VERSION,
-      missionInstanceId: mission._id,
-      userId: user._id
-    },
-    {
-      $set: {
-        contributionUnits,
-        stateKey,
-        qualifiedAt: contributionUnits > 0 ? qualifiedAt ?? new Date() : undefined
+    await MissionContributionModel.findOneAndUpdate(
+      {
+        schemaVersion: MISSION_SCHEMA_VERSION,
+        missionInstanceId: input.mission._id,
+        userId: user._id
+      },
+      {
+        $set: {
+          contributionUnits: contribution.contributionUnits,
+          stateKey,
+          qualifiedAt:
+            contribution.contributionUnits > 0
+              ? contribution.qualifiedAt ?? new Date()
+              : undefined
+        }
+      },
+      {
+        upsert: true,
+        new: true,
+        setDefaultsOnInsert: true
       }
-    },
-    {
-      upsert: true,
-      new: true,
-      setDefaultsOnInsert: true
-    }
-  )
+    )
+  }
 
-  if (progressValue >= mission.goalUnits && !typedProgress.rewardAwardedAt) {
+  if (aggregate.progressValue >= input.mission.goalUnits && !typedProgress.rewardAwardedAt) {
     const occurredAt = typedProgress.completedAt ?? new Date()
 
     await recordLeaderboardPointEvents([
       {
         boardType: "state",
-        cadence: mission.cadence,
-        periodAt: mission.startsAt,
+        cadence: input.mission.cadence,
+        periodAt: input.mission.startsAt,
         occurredAt,
         competitorType: "state",
         competitorKey: stateKey,
-        displayName: user.region.state,
-        points: mission.rewardPoints,
+        displayName: input.stateLabel,
+        points: input.mission.rewardPoints,
         sourceType: "mission_completion",
-        sourceId: String(mission._id),
-        dedupeKey: `mission:${mission._id}:state:${stateKey}`
+        sourceId: String(input.mission._id),
+        dedupeKey: `mission:${input.mission._id}:state:${stateKey}`
       }
     ])
 
     await recordLocationActivityEvents(
       buildLocationActivityEvents({
         occurredAt,
-        points: mission.rewardPoints,
+        points: input.mission.rewardPoints,
         sourceType: "mission_completion",
-        sourceId: `${mission._id}:state:${stateKey}`,
-        stateKey: stateSource,
-        stateLabel: user.region.state
+        sourceId: `${input.mission._id}:state:${stateKey}`,
+        stateKey: input.stateScopeSource,
+        stateLabel: input.stateLabel
       })
     )
 
@@ -1879,99 +2000,43 @@ async function recomputeStateMissionProgress(
   }
 }
 
-async function recomputeIndiaMissionProgress(
-  user: Awaited<ReturnType<typeof getCurrentUserRecord>>,
+async function recomputeIndiaMissionScope(input: {
   mission: MissionInstanceDoc
-) {
-  const indiaEvents = await getRelevantStreamEvents({}, mission.startsAt, mission.endsAt)
+  scopeEvents: StreamEventDoc[]
+  affectedUsers: MissionProgressUser[]
+  trackEquivalenceData?: TrackEquivalenceData
+}) {
   const existingSharedProgress = (await SharedMissionProgressModel.findOne({
     schemaVersion: MISSION_SCHEMA_VERSION,
-    missionInstanceId: mission._id,
+    missionInstanceId: input.mission._id,
     scopeType: "india",
     scopeKey: INDIA_SCOPE_KEY
   }).lean()) as unknown as SharedMissionProgressDoc | null
-  const indiaUsers = new Set(indiaEvents.map((event) => String(event.userId)))
-  let progressValue = 0
-  const targetProgress: Record<string, number> = {}
-  let contributorCount = 0
-  const trackEquivalenceData =
-    mission.mechanicType === "track_streams" ? await getTrackEquivalenceData() : undefined
-  const missionTrackMatchKeys =
-    mission.mechanicType === "track_streams"
-      ? buildMissionTrackMatchKeySet(mission.targetConfig.targets, trackEquivalenceData)
-      : undefined
-
-  if (mission.mechanicType === "track_streams") {
-    const matchingEvents = indiaEvents.filter((event) =>
-      missionTrackMatchKeys?.has(event.catalogTrackSpotifyId ?? "")
-    )
-    const counts = countMatchingTrackStreams(
-      matchingEvents,
-      mission.targetConfig.targets,
-      trackEquivalenceData
-    )
-
-    for (const target of mission.targetConfig.targets) {
-      if (target.kind !== "track" || !target.trackKey) {
-        continue
-      }
-
-      const count = counts.get(target.trackKey) ?? 0
-      targetProgress[buildTrackTargetProgressKey(target.trackKey)] = count
-      progressValue += count
-    }
-
-    contributorCount = new Set(matchingEvents.map((event) => String(event.userId))).size
-  } else {
-    const perUserAlbumCompletion = new Map<string, number>()
-    const completedUserIds = new Set<string>()
-
-    for (const userId of indiaUsers) {
-      const userEvents = indiaEvents.filter((event) => String(event.userId) === userId)
-      const completionMap = computeAlbumCompletionDetails(userEvents, mission.targetConfig.targets)
-      let userCompletedCount = 0
-
-      for (const target of mission.targetConfig.targets) {
-        if (target.kind !== "album" || !target.albumKey) {
-          continue
-        }
-
-        const completed = completionMap.get(target.albumKey)?.completed ?? 0
-        targetProgress[buildAlbumTargetProgressKey(target.albumKey)] =
-          (targetProgress[buildAlbumTargetProgressKey(target.albumKey)] ?? 0) + completed
-        userCompletedCount += completed
-      }
-
-      perUserAlbumCompletion.set(userId, userCompletedCount)
-
-      if (userCompletedCount > 0) {
-        completedUserIds.add(userId)
-      }
-    }
-
-    progressValue = Array.from(perUserAlbumCompletion.values()).reduce((sum, value) => sum + value, 0)
-    contributorCount = completedUserIds.size
-  }
+  const aggregate = computeSharedMissionAggregate(
+    input.scopeEvents,
+    input.mission,
+    input.trackEquivalenceData
+  )
 
   const completedAt =
-    progressValue >= mission.goalUnits
+    aggregate.progressValue >= input.mission.goalUnits
       ? existingSharedProgress?.completedAt ?? new Date()
       : undefined
 
   await SharedMissionProgressModel.findOneAndUpdate(
     {
       schemaVersion: MISSION_SCHEMA_VERSION,
-      missionInstanceId: mission._id,
+      missionInstanceId: input.mission._id,
       scopeType: "india",
       scopeKey: INDIA_SCOPE_KEY
     },
     {
       $set: {
         scopeLabel: "All India",
-        progressValue,
-        goalUnits: mission.goalUnits,
-        contributorCount,
-        targetProgress,
+        progressValue: aggregate.progressValue,
+        goalUnits: input.mission.goalUnits,
+        contributorCount: aggregate.contributorCount,
+        targetProgress: aggregate.targetProgress,
         completedAt
       }
     },
@@ -1982,76 +2047,201 @@ async function recomputeIndiaMissionProgress(
     }
   )
 
-  const userEvents = indiaEvents.filter((event) => String(event.userId) === String(user._id))
-  const userAlbumCompletionDetails =
-    mission.mechanicType === "album_completions"
-      ? computeAlbumCompletionDetails(userEvents, mission.targetConfig.targets)
-      : null
-  const contributionUnits =
-    mission.mechanicType === "track_streams"
-      ? userEvents.filter((event) => missionTrackMatchKeys?.has(event.catalogTrackSpotifyId ?? "")).length
-      : Array.from(userAlbumCompletionDetails?.values() ?? []).reduce(
-          (sum, value) => sum + value.completed,
-          0
-        )
-  const qualifiedAt =
-    mission.mechanicType === "track_streams"
-      ? getFirstMatchingTrackContributionAt(
-          userEvents,
-          mission.targetConfig.targets,
-          trackEquivalenceData
-        )
-      : Array.from(userAlbumCompletionDetails?.values() ?? [])
-          .map((value) => value.completedAt)
-          .filter((value): value is Date => Boolean(value))
-          .sort((left, right) => left.getTime() - right.getTime())[0]
+  for (const user of input.affectedUsers) {
+    const contribution = computeMissionContributionFromEvents(
+      aggregate.eventsByUserId.get(String(user._id)) ?? [],
+      input.mission,
+      input.trackEquivalenceData
+    )
 
-  await MissionContributionModel.findOneAndUpdate(
-    {
-      schemaVersion: MISSION_SCHEMA_VERSION,
-      missionInstanceId: mission._id,
-      userId: user._id
-    },
-    {
-      $set: {
-        contributionUnits,
-        stateKey: getStateScopeSource(user.region)
-          ? buildStateKey(getStateScopeSource(user.region) as string)
-          : undefined,
-        qualifiedAt: contributionUnits > 0 ? qualifiedAt ?? new Date() : undefined
+    await MissionContributionModel.findOneAndUpdate(
+      {
+        schemaVersion: MISSION_SCHEMA_VERSION,
+        missionInstanceId: input.mission._id,
+        userId: user._id
+      },
+      {
+        $set: {
+          contributionUnits: contribution.contributionUnits,
+          stateKey: getStateScopeSource(user.region)
+            ? buildStateKey(getStateScopeSource(user.region) as string)
+            : undefined,
+          qualifiedAt:
+            contribution.contributionUnits > 0
+              ? contribution.qualifiedAt ?? new Date()
+              : undefined
+        }
+      },
+      {
+        upsert: true,
+        new: true,
+        setDefaultsOnInsert: true
       }
-    },
-    {
-      upsert: true,
-      new: true,
-      setDefaultsOnInsert: true
-    }
-  )
+    )
+  }
 
   if (completedAt) {
-    await awardIndiaMissionContributors(mission, completedAt)
+    await awardIndiaMissionContributors(input.mission, completedAt)
+  }
+}
+
+export async function recomputeMissionProgressForUsers(users: MissionProgressUser[]) {
+  const uniqueUsers = Array.from(
+    new Map(
+      users
+        .filter((user) => Boolean(user.region?.state))
+        .map((user) => [String(user._id), user] as const)
+    ).values()
+  )
+
+  if (uniqueUsers.length === 0) {
+    return
+  }
+
+  await connectToDatabase()
+  await ensureCurrentMissionInstances()
+  const missions = await getCurrentMissionInstances()
+  const groupedMissions = groupCurrentMissionsByCadence(missions)
+  const currentPeriods = getCurrentIndiaPeriods()
+  const trackEquivalenceData = missions.some((mission) => mission.mechanicType === "track_streams")
+    ? await getTrackEquivalenceData()
+    : undefined
+  const userEventCache = new Map<string, Partial<Record<MissionCadence, StreamEventDoc[]>>>()
+  const stateEventCache = new Map<string, Partial<Record<MissionCadence, StreamEventDoc[]>>>()
+  const indiaEventCache: Partial<Record<MissionCadence, StreamEventDoc[]>> = {}
+  const usersByState = new Map<
+    string,
+    {
+      stateLabel: string
+      users: MissionProgressUser[]
+    }
+  >()
+
+  for (const user of uniqueUsers) {
+    const stateScopeSource = getStateScopeSource(user.region)
+
+    if (!stateScopeSource || !user.region?.state) {
+      continue
+    }
+
+    const existingGroup = usersByState.get(stateScopeSource)
+
+    if (existingGroup) {
+      existingGroup.users.push(user)
+      if (!existingGroup.stateLabel) {
+        existingGroup.stateLabel = user.region.state
+      }
+      continue
+    }
+
+    usersByState.set(stateScopeSource, {
+      stateLabel: user.region.state,
+      users: [user]
+    })
+  }
+
+  async function getUserCadenceEvents(userId: Types.ObjectId, cadence: MissionCadence) {
+    const cacheKey = String(userId)
+    const scopedCache = userEventCache.get(cacheKey) ?? {}
+    const cachedEvents = scopedCache[cadence]
+
+    if (cachedEvents) {
+      return cachedEvents
+    }
+
+    const period = currentPeriods[cadence]
+    const events = await getRelevantStreamEvents(
+      { userId },
+      period.startsAt,
+      period.endsAt
+    )
+    scopedCache[cadence] = events
+    userEventCache.set(cacheKey, scopedCache)
+    return events
+  }
+
+  async function getStateCadenceEvents(stateScopeSource: string, cadence: MissionCadence) {
+    const scopedCache = stateEventCache.get(stateScopeSource) ?? {}
+    const cachedEvents = scopedCache[cadence]
+
+    if (cachedEvents) {
+      return cachedEvents
+    }
+
+    const period = currentPeriods[cadence]
+    const events = await getRelevantStreamEvents(
+      { stateKey: buildStateKey(stateScopeSource) },
+      period.startsAt,
+      period.endsAt
+    )
+    scopedCache[cadence] = events
+    stateEventCache.set(stateScopeSource, scopedCache)
+    return events
+  }
+
+  async function getIndiaCadenceEvents(cadence: MissionCadence) {
+    const cachedEvents = indiaEventCache[cadence]
+
+    if (cachedEvents) {
+      return cachedEvents
+    }
+
+    const period = currentPeriods[cadence]
+    const events = await getRelevantStreamEvents({}, period.startsAt, period.endsAt)
+    indiaEventCache[cadence] = events
+    return events
+  }
+
+  for (const cadence of missionCadences) {
+    if (groupedMissions[cadence].individual.length > 0) {
+      for (const user of uniqueUsers) {
+        const userEvents = await getUserCadenceEvents(user._id, cadence)
+
+        for (const mission of groupedMissions[cadence].individual) {
+          await recomputeIndividualMissionProgress(user, mission, {
+            events: userEvents,
+            trackEquivalenceData
+          })
+        }
+      }
+    }
+
+    if (groupedMissions[cadence].state.length > 0) {
+      for (const [stateScopeSource, stateGroup] of usersByState.entries()) {
+        const scopeEvents = await getStateCadenceEvents(stateScopeSource, cadence)
+
+        for (const mission of groupedMissions[cadence].state) {
+          await recomputeStateMissionScope({
+            mission,
+            stateScopeSource,
+            stateLabel: stateGroup.stateLabel,
+            scopeEvents,
+            affectedUsers: stateGroup.users,
+            trackEquivalenceData
+          })
+        }
+      }
+    }
+
+    if (groupedMissions[cadence].india.length > 0) {
+      const scopeEvents = await getIndiaCadenceEvents(cadence)
+
+      for (const mission of groupedMissions[cadence].india) {
+        await recomputeIndiaMissionScope({
+          mission,
+          scopeEvents,
+          affectedUsers: uniqueUsers,
+          trackEquivalenceData
+        })
+      }
+    }
   }
 }
 
 export async function recomputeMissionProgressForUser(
   user: Awaited<ReturnType<typeof getCurrentUserRecord>>
 ) {
-  if (!user.region?.state) {
-    return
-  }
-
-  await ensureCurrentMissionInstances()
-  const missions = await getCurrentMissionInstances()
-
-  for (const mission of missions) {
-    if (mission.missionKind === "individual_personal") {
-      await recomputeIndividualMissionProgress(user, mission)
-    } else if (mission.missionKind === "state_shared") {
-      await recomputeStateMissionProgress(user, mission)
-    } else {
-      await recomputeIndiaMissionProgress(user, mission)
-    }
-  }
+  await recomputeMissionProgressForUsers([user])
 }
 
 export async function listMissionCards(): Promise<MissionCard[]> {
