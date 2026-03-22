@@ -7,6 +7,7 @@ import {
 } from "@/platform/cache/shared"
 import {
   LocationActivityEventModel,
+  LocationActivityParticipantModel,
   LocationActivitySnapshotModel
 } from "@/platform/db/models/activity-map"
 import { LocationPlaceModel, LocationStateModel } from "@/platform/db/models/locations"
@@ -74,6 +75,22 @@ type ActivityMapSnapshotDoc = {
   missionCompletionCount: number
   activeUserCount: number
   updatedAt?: Date
+}
+
+type ActivitySnapshotDelta = {
+  period: MissionCadence
+  periodKey: string
+  scopeType: "state" | "place"
+  scopeKey: string
+  stateKey: string
+  placeKey?: string
+  displayLabel: string
+  activityScoreDelta: number
+  verifiedStreamCountDelta: number
+  missionCompletionPointsDelta: number
+  missionCompletionCountDelta: number
+  activeUserCountDelta: number
+  lastOccurredAt?: Date
 }
 
 const indiaAdm1MetadataByStateKey = new Map(
@@ -150,84 +167,199 @@ export async function recordLocationActivityEvents(events: ActivityEventInput[])
     return { inserted: 0 }
   }
 
-  const eventOperations: Parameters<typeof LocationActivityEventModel.bulkWrite>[0] = filtered.map(
-    (event) => ({
+  const uniqueParticipants = Array.from(
+    new Map(
+      filtered
+        .filter((event) => event.userId)
+        .map((event) => [
+          `${event.period}:${event.periodKey}:${event.scopeType}:${event.scopeKey}:${String(event.userId)}`,
+          event
+        ] as const)
+    ).values()
+  )
+  const participantResult =
+    uniqueParticipants.length > 0
+      ? await LocationActivityParticipantModel.bulkWrite(
+          uniqueParticipants.map((event) => ({
+            updateOne: {
+              filter: {
+                period: event.period,
+                periodKey: event.periodKey,
+                scopeType: event.scopeType,
+                scopeKey: event.scopeKey,
+                userId: event.userId
+              },
+              update: {
+                $setOnInsert: {
+                  stateKey: event.stateKey,
+                  placeKey: event.placeKey
+                }
+              },
+              upsert: true
+            }
+          })),
+          { ordered: false }
+        )
+      : null
+  const participantIncrements = new Map<string, number>()
+
+  for (const index of Object.keys(participantResult?.upsertedIds ?? {})) {
+    const event = uniqueParticipants[Number(index)]
+
+    if (!event) {
+      continue
+    }
+
+    const key = `${event.period}:${event.periodKey}:${event.scopeType}:${event.scopeKey}`
+    participantIncrements.set(key, (participantIncrements.get(key) ?? 0) + 1)
+  }
+
+  const deltas = new Map<string, ActivitySnapshotDelta>()
+
+  for (const event of filtered) {
+    const key = `${event.period}:${event.periodKey}:${event.scopeType}:${event.scopeKey}`
+    const current = deltas.get(key) ?? {
+      period: event.period,
+      periodKey: event.periodKey,
+      scopeType: event.scopeType,
+      scopeKey: event.scopeKey,
+      stateKey: event.stateKey,
+      placeKey: event.placeKey,
+      displayLabel: event.displayLabel,
+      activityScoreDelta: 0,
+      verifiedStreamCountDelta: 0,
+      missionCompletionPointsDelta: 0,
+      missionCompletionCountDelta: 0,
+      activeUserCountDelta: 0,
+      lastOccurredAt: undefined
+    }
+
+    current.activityScoreDelta += event.points
+    current.displayLabel = event.displayLabel
+    current.stateKey = event.stateKey
+    current.placeKey = event.placeKey
+    current.lastOccurredAt =
+      current.lastOccurredAt && current.lastOccurredAt > event.occurredAt
+        ? current.lastOccurredAt
+        : event.occurredAt
+
+    if (event.sourceType === "verified_stream") {
+      current.verifiedStreamCountDelta += 1
+    } else {
+      current.missionCompletionPointsDelta += event.points
+      current.missionCompletionCountDelta += 1
+    }
+
+    deltas.set(key, current)
+  }
+
+  for (const [key, increment] of participantIncrements.entries()) {
+    const current = deltas.get(key)
+
+    if (!current) {
+      continue
+    }
+
+    current.activeUserCountDelta += increment
+  }
+
+  await LocationActivitySnapshotModel.bulkWrite(
+    Array.from(deltas.values(), (delta) => ({
       updateOne: {
-        filter: { dedupeKey: event.dedupeKey },
+        filter: {
+          period: delta.period,
+          periodKey: delta.periodKey,
+          scopeType: delta.scopeType,
+          scopeKey: delta.scopeKey
+        },
         update: {
-          $setOnInsert: {
-            period: event.period,
-            periodKey: event.periodKey,
-            scopeType: event.scopeType,
-            scopeKey: event.scopeKey,
-            stateKey: event.stateKey,
-            placeKey: event.placeKey,
-            displayLabel: event.displayLabel,
-            points: event.points,
-            sourceType: event.sourceType,
-            sourceId: event.sourceId,
-            userId: event.userId,
-            occurredAt: event.occurredAt,
-            dedupeKey: event.dedupeKey
-          }
+          $set: {
+            stateKey: delta.stateKey,
+            placeKey: delta.placeKey,
+            displayLabel: delta.displayLabel,
+            isDirty: false
+          },
+          $inc: {
+            activityScore: delta.activityScoreDelta,
+            verifiedStreamCount: delta.verifiedStreamCountDelta,
+            missionCompletionPoints: delta.missionCompletionPointsDelta,
+            missionCompletionCount: delta.missionCompletionCountDelta,
+            activeUserCount: delta.activeUserCountDelta
+          },
+          ...(delta.lastOccurredAt
+            ? {
+                $max: {
+                  lastOccurredAt: delta.lastOccurredAt
+                }
+              }
+            : {})
         },
         upsert: true
       }
-    })
+    })),
+    { ordered: false }
   )
-  const result = await LocationActivityEventModel.bulkWrite(eventOperations, { ordered: false })
-  const inserted = result.upsertedCount ?? 0
 
-  if (inserted > 0) {
-    const snapshotOps = new Map<string, (typeof filtered)[number]>()
+  revalidateCacheTags(
+    cacheTags.activityMap,
+    cacheTags.activityMapDaily,
+    cacheTags.activityMapWeekly,
+    cacheTags.activityMapAdmin,
+    cacheTags.adminOverview
+  )
 
-    for (const event of filtered) {
-      snapshotOps.set(
-        `${event.period}:${event.periodKey}:${event.scopeType}:${event.scopeKey}`,
-        event
-      )
-    }
+  return { inserted: filtered.length }
+}
 
-    await LocationActivitySnapshotModel.bulkWrite(
-      Array.from(snapshotOps.values(), (event) => ({
-        updateOne: {
-          filter: {
-            period: event.period,
-            periodKey: event.periodKey,
-            scopeType: event.scopeType,
-            scopeKey: event.scopeKey
-          },
-          update: {
-            $setOnInsert: {
-              stateKey: event.stateKey,
-              placeKey: event.placeKey,
-              displayLabel: event.displayLabel,
-              activityScore: 0,
-              verifiedStreamCount: 0,
-              missionCompletionPoints: 0,
-              missionCompletionCount: 0,
-              activeUserCount: 0
-            },
-            $set: {
-              isDirty: true
-            }
-          },
-          upsert: true
-        }
-      })),
-      { ordered: false }
-    )
+export async function rollbackLocationActivityEvents(events: ActivityEventInput[]) {
+  await connectToDatabase()
 
-    revalidateCacheTags(
-      cacheTags.activityMap,
-      cacheTags.activityMapDaily,
-      cacheTags.activityMapWeekly,
-      cacheTags.activityMapAdmin,
-      cacheTags.adminOverview
-    )
+  const filtered = events.filter(
+    (event) => event.points > 0 && event.displayLabel.trim().length > 0 && event.stateKey.trim().length > 0
+  )
+
+  if (filtered.length === 0) {
+    return { inserted: 0 }
   }
 
-  return { inserted }
+  await LocationActivitySnapshotModel.bulkWrite(
+    filtered.map((event) => ({
+      updateOne: {
+        filter: {
+          period: event.period,
+          periodKey: event.periodKey,
+          scopeType: event.scopeType,
+          scopeKey: event.scopeKey
+        },
+        update: {
+          $set: {
+            stateKey: event.stateKey,
+            placeKey: event.placeKey,
+            displayLabel: event.displayLabel,
+            isDirty: false
+          },
+          $inc: {
+            activityScore: -event.points,
+            verifiedStreamCount: event.sourceType === "verified_stream" ? -1 : 0,
+            missionCompletionPoints: event.sourceType === "mission_completion" ? -event.points : 0,
+            missionCompletionCount: event.sourceType === "mission_completion" ? -1 : 0
+          }
+        },
+        upsert: false
+      }
+    })),
+    { ordered: false }
+  )
+
+  revalidateCacheTags(
+    cacheTags.activityMap,
+    cacheTags.activityMapDaily,
+    cacheTags.activityMapWeekly,
+    cacheTags.activityMapAdmin,
+    cacheTags.adminOverview
+  )
+
+  return { inserted: filtered.length }
 }
 
 function aggregateEvents(
@@ -361,6 +493,78 @@ export async function materializeLocationActivity(options: { periodKey?: string 
 
   return {
     snapshotsMaterialized: dirtySnapshots.length
+  }
+}
+
+export async function backfillCurrentActivitySnapshotsFromLegacyEvents() {
+  await connectToDatabase()
+
+  const periods = [getIndiaPeriod("daily"), getIndiaPeriod("weekly")]
+  let snapshotsMaterialized = 0
+
+  for (const period of periods) {
+    const result = await materializeLocationActivity({ periodKey: period.periodKey })
+    snapshotsMaterialized += result.snapshotsMaterialized
+  }
+
+  const participantEvents = (await LocationActivityEventModel.find({
+    periodKey: { $in: periods.map((period) => period.periodKey) },
+    userId: { $ne: null }
+  })
+    .select({
+      period: 1,
+      periodKey: 1,
+      scopeType: 1,
+      scopeKey: 1,
+      stateKey: 1,
+      placeKey: 1,
+      userId: 1
+    })
+    .lean()) as unknown as Array<{
+    period: MissionCadence
+    periodKey: string
+    scopeType: "state" | "place"
+    scopeKey: string
+    stateKey: string
+    placeKey?: string
+    userId: Types.ObjectId
+  }>
+  const uniqueParticipants = Array.from(
+    new Map(
+      participantEvents.map((event) => [
+        `${event.period}:${event.periodKey}:${event.scopeType}:${event.scopeKey}:${String(event.userId)}`,
+        event
+      ] as const)
+    ).values()
+  )
+
+  if (uniqueParticipants.length > 0) {
+    await LocationActivityParticipantModel.bulkWrite(
+      uniqueParticipants.map((event) => ({
+        updateOne: {
+          filter: {
+            period: event.period,
+            periodKey: event.periodKey,
+            scopeType: event.scopeType,
+            scopeKey: event.scopeKey,
+            userId: event.userId
+          },
+          update: {
+            $setOnInsert: {
+              stateKey: event.stateKey,
+              placeKey: event.placeKey
+            }
+          },
+          upsert: true
+        }
+      })),
+      { ordered: false }
+    )
+  }
+
+  return {
+    snapshotsMaterialized,
+    participantsBackfilled: uniqueParticipants.length
   }
 }
 

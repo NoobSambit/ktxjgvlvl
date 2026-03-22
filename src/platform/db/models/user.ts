@@ -59,6 +59,10 @@ const userSchema = new Schema(
     moderationFlags: {
       type: [String],
       default: []
+    },
+    streamStats: {
+      totalVerifiedBtsStreams: { type: Number, default: 0 },
+      lastVerifiedStreamAt: { type: Date }
     }
   },
   { timestamps: true }

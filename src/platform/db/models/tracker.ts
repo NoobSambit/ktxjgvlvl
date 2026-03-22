@@ -38,7 +38,11 @@ const regionConfirmationSchema = new Schema(
       default: "user_confirmation"
     }
   },
-  { timestamps: true }
+  {
+    timestamps: true,
+    autoCreate: false,
+    autoIndex: false
+  }
 )
 
 export const TrackerConnectionModel =

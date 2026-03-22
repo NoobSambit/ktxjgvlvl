@@ -60,7 +60,11 @@ const leaderboardPointEventSchema = new Schema(
     sourceId: { type: String, required: true },
     dedupeKey: { type: String, required: true, unique: true }
   },
-  { timestamps: true }
+  {
+    timestamps: true,
+    autoCreate: false,
+    autoIndex: false
+  }
 )
 
 leaderboardPointEventSchema.index({ boardId: 1, competitorKey: 1, createdAt: -1 })

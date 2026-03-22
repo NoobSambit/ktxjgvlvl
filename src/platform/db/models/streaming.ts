@@ -45,7 +45,11 @@ const streamSyncCheckpointSchema = new Schema(
     cursor: { type: String },
     lastPlayedAt: { type: Date }
   },
-  { timestamps: true }
+  {
+    timestamps: true,
+    autoCreate: false,
+    autoIndex: false
+  }
 )
 
 const userStreamDailyStatSchema = new Schema(
@@ -58,7 +62,11 @@ const userStreamDailyStatSchema = new Schema(
     topTrackKey: { type: String },
     topArtistKey: { type: String }
   },
-  { timestamps: true }
+  {
+    timestamps: true,
+    autoCreate: false,
+    autoIndex: false
+  }
 )
 
 userStreamDailyStatSchema.index({ userId: 1, dayKey: -1 }, { unique: true })
@@ -72,7 +80,11 @@ const userTrackCounterSchema = new Schema(
     albumKey: { type: String },
     streamCount: { type: Number, default: 0 }
   },
-  { timestamps: true }
+  {
+    timestamps: true,
+    autoCreate: false,
+    autoIndex: false
+  }
 )
 
 userTrackCounterSchema.index({ userId: 1, dayKey: 1, trackKey: 1 }, { unique: true })

@@ -12,10 +12,7 @@ import {
 } from "@/platform/auth/current-user"
 import { getSessionUser } from "@/platform/auth/session"
 import { CatalogAlbumModel, CatalogTrackModel } from "@/platform/db/models/catalog"
-import {
-  LeaderboardBoardModel,
-  LeaderboardPointEventModel
-} from "@/platform/db/models/leaderboards"
+import { LeaderboardBoardModel } from "@/platform/db/models/leaderboards"
 import {
   MissionContributionModel,
   MissionInstanceModel,
@@ -31,6 +28,7 @@ import { buildStateKey } from "@/platform/integrations/geo/state-scopes"
 import { getCurrentIndiaPeriods, getIndiaPeriod, getNextIndiaPeriods } from "@/platform/time/india-periods"
 import {
   buildLocationActivityEvents,
+  rollbackLocationActivityEvents,
   recordLocationActivityEvents
 } from "@/modules/activity-map/service"
 import {
@@ -39,7 +37,11 @@ import {
   listTrackOptions,
   type CatalogOption
 } from "@/modules/catalog/service"
-import { getLeaderboardStatusSummary, recordLeaderboardPointEvents } from "@/modules/leaderboards/service"
+import {
+  getLeaderboardStatusSummary,
+  recordLeaderboardPointEvents,
+  rollbackLeaderboardPointEvents
+} from "@/modules/leaderboards/service"
 import { getEffectivePlaceFromRegion, getStateScopeSource } from "@/modules/locations/service"
 import {
   getMissionCellConfig,
@@ -805,38 +807,210 @@ function deriveGoalUnits(
 }
 
 async function resetMissionInstanceState(missionInstanceId: Types.ObjectId) {
-  const missionSourceId = String(missionInstanceId)
-  const rewardPointEvents = await LeaderboardPointEventModel.find({
-    sourceType: "mission_completion",
-    sourceId: missionSourceId
-  })
-    .select({ boardId: 1 })
-    .lean()
+  const mission = (await MissionInstanceModel.findById(missionInstanceId).lean()) as MissionInstanceDoc | null
 
-  const affectedBoardIds = Array.from(
+  if (!mission) {
+    return
+  }
+
+  const [userProgressDocs, sharedProgressDocs, contributionDocs] = await Promise.all([
+    (UserMissionProgressModel.find({
+      missionInstanceId,
+      rewardAwardedAt: { $ne: null }
+    }).lean()) as unknown as Promise<UserMissionProgressDoc[]>,
+    (SharedMissionProgressModel.find({
+      missionInstanceId,
+      rewardAwardedAt: { $ne: null }
+    }).lean()) as unknown as Promise<SharedMissionProgressDoc[]>,
+    (MissionContributionModel.find({
+      missionInstanceId,
+      rewardAwardedAt: { $ne: null }
+    }).lean()) as unknown as Promise<MissionContributionDoc[]>
+  ])
+  const leaderboardRollbacks: Parameters<typeof recordLeaderboardPointEvents>[0] = []
+  const locationRollbacks: ReturnType<typeof buildLocationActivityEvents> = []
+  const userIds = Array.from(
     new Set(
-      rewardPointEvents
-        .map((event) => String(event.boardId))
-        .filter(Boolean)
+      [
+        ...userProgressDocs.map((progress) => String(progress.userId)),
+        ...contributionDocs.map((contribution) => String(contribution.userId))
+      ].filter(Boolean)
+    ),
+    (userId) => new Types.ObjectId(userId)
+  )
+  const users = userIds.length > 0 ? await requireUsersByIds(userIds) : []
+  const userMap = new Map(users.map((user) => [String(user._id), user]))
+
+  for (const progress of userProgressDocs) {
+    const user = userMap.get(String(progress.userId))
+    const stateSource = getStateScopeSource(user?.region)
+
+    if (!user || !stateSource || !user.region?.state) {
+      continue
+    }
+
+    const stateKey = buildStateKey(stateSource)
+    const effectivePlace = getEffectivePlaceFromRegion(user.region)
+    const occurredAt = progress.completedAt ?? progress.rewardAwardedAt ?? new Date()
+
+    leaderboardRollbacks.push(
+      {
+        boardType: "individual",
+        cadence: mission.cadence,
+        periodAt: mission.startsAt,
+        occurredAt,
+        competitorType: "user",
+        competitorKey: String(user._id),
+        displayName: user.displayName,
+        points: mission.rewardPoints,
+        sourceType: "mission_completion",
+        sourceId: String(mission._id),
+        dedupeKey: `mission:${mission._id}:user:${user._id}:individual`,
+        userId: user._id,
+        stateKey
+      },
+      {
+        boardType: "state",
+        cadence: mission.cadence,
+        periodAt: mission.startsAt,
+        occurredAt,
+        competitorType: "state",
+        competitorKey: stateKey,
+        displayName: user.region.state,
+        points: mission.rewardPoints,
+        sourceType: "mission_completion",
+        sourceId: String(mission._id),
+        dedupeKey: `mission:${mission._id}:user:${user._id}:state:${stateKey}`,
+        userId: user._id,
+        stateKey
+      }
     )
-  ).map((boardId) => new Types.ObjectId(boardId))
+
+    locationRollbacks.push(
+      ...buildLocationActivityEvents({
+        occurredAt,
+        points: mission.rewardPoints,
+        sourceType: "mission_completion",
+        sourceId: `${mission._id}:personal:${user._id}`,
+        userId: user._id,
+        stateKey: stateSource,
+        stateLabel: user.region.state,
+        placeKey: effectivePlace?.placeKey,
+        placeLabel: effectivePlace?.placeLabel
+      })
+    )
+  }
+
+  for (const sharedProgress of sharedProgressDocs) {
+    if (mission.missionKind !== "state_shared") {
+      continue
+    }
+
+    const occurredAt = sharedProgress.completedAt ?? sharedProgress.rewardAwardedAt ?? new Date()
+    const rawStateKey = sharedProgress.scopeKey.startsWith("state:")
+      ? sharedProgress.scopeKey.slice("state:".length)
+      : sharedProgress.scopeKey
+
+    leaderboardRollbacks.push({
+      boardType: "state",
+      cadence: mission.cadence,
+      periodAt: mission.startsAt,
+      occurredAt,
+      competitorType: "state",
+      competitorKey: sharedProgress.scopeKey,
+      displayName: sharedProgress.scopeLabel,
+      points: mission.rewardPoints,
+      sourceType: "mission_completion",
+      sourceId: String(mission._id),
+      dedupeKey: `mission:${mission._id}:state:${sharedProgress.scopeKey}`,
+      stateKey: sharedProgress.scopeKey
+    })
+
+    locationRollbacks.push(
+      ...buildLocationActivityEvents({
+        occurredAt,
+        points: mission.rewardPoints,
+        sourceType: "mission_completion",
+        sourceId: `${mission._id}:state:${sharedProgress.scopeKey}`,
+        stateKey: rawStateKey,
+        stateLabel: sharedProgress.scopeLabel
+      })
+    )
+  }
+
+  for (const contribution of contributionDocs) {
+    const user = userMap.get(String(contribution.userId))
+    const stateSource = getStateScopeSource(user?.region)
+
+    if (!user || !stateSource || !user.region?.state) {
+      continue
+    }
+
+    const stateKey = buildStateKey(stateSource)
+    const effectivePlace = getEffectivePlaceFromRegion(user.region)
+    const occurredAt = contribution.qualifiedAt ?? contribution.rewardAwardedAt ?? new Date()
+
+    leaderboardRollbacks.push(
+      {
+        boardType: "individual",
+        cadence: mission.cadence,
+        periodAt: mission.startsAt,
+        occurredAt,
+        competitorType: "user",
+        competitorKey: String(user._id),
+        displayName: user.displayName,
+        points: mission.rewardPoints,
+        sourceType: "mission_completion",
+        sourceId: String(mission._id),
+        dedupeKey: `mission:${mission._id}:india:user:${user._id}:individual`,
+        userId: user._id,
+        stateKey
+      },
+      {
+        boardType: "state",
+        cadence: mission.cadence,
+        periodAt: mission.startsAt,
+        occurredAt,
+        competitorType: "state",
+        competitorKey: stateKey,
+        displayName: user.region.state,
+        points: mission.rewardPoints,
+        sourceType: "mission_completion",
+        sourceId: String(mission._id),
+        dedupeKey: `mission:${mission._id}:india:user:${user._id}:state:${stateKey}`,
+        userId: user._id,
+        stateKey
+      }
+    )
+
+    locationRollbacks.push(
+      ...buildLocationActivityEvents({
+        occurredAt,
+        points: mission.rewardPoints,
+        sourceType: "mission_completion",
+        sourceId: `${mission._id}:india:${user._id}`,
+        userId: user._id,
+        stateKey: stateSource,
+        stateLabel: user.region.state,
+        placeKey: effectivePlace?.placeKey,
+        placeLabel: effectivePlace?.placeLabel
+      })
+    )
+  }
+
+  if (leaderboardRollbacks.length > 0) {
+    await rollbackLeaderboardPointEvents(leaderboardRollbacks)
+  }
+
+  if (locationRollbacks.length > 0) {
+    await rollbackLocationActivityEvents(locationRollbacks)
+  }
 
   await Promise.all([
     UserMissionProgressModel.deleteMany({ missionInstanceId }),
     SharedMissionProgressModel.deleteMany({ missionInstanceId }),
-    MissionContributionModel.deleteMany({ missionInstanceId }),
-    LeaderboardPointEventModel.deleteMany({
-      sourceType: "mission_completion",
-      sourceId: missionSourceId
-    })
+    MissionContributionModel.deleteMany({ missionInstanceId })
   ])
-
-  if (affectedBoardIds.length > 0) {
-    await LeaderboardBoardModel.updateMany(
-      { _id: { $in: affectedBoardIds } },
-      { $set: { isDirty: true } }
-    )
-  }
 }
 
 async function resetLegacyCurrentMissionInstances() {

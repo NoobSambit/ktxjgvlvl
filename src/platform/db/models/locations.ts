@@ -9,7 +9,11 @@ const locationStateSchema = new Schema(
     aliases: { type: [String], default: [] },
     centroidLat: { type: Number },
     centroidLng: { type: Number },
-    mapFeatureId: { type: String, index: true }
+    mapFeatureId: { type: String, index: true },
+    streamStats: {
+      totalVerifiedBtsStreams: { type: Number, default: 0 },
+      lastVerifiedStreamAt: { type: Date }
+    }
   },
   { timestamps: true }
 )

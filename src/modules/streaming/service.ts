@@ -5,6 +5,7 @@ import { UserModel } from "@/platform/db/models/user"
 import { CatalogTrackModel } from "@/platform/db/models/catalog"
 import { StreamEventModel } from "@/platform/db/models/streaming"
 import { TrackerConnectionModel } from "@/platform/db/models/tracker"
+import { LocationStateModel } from "@/platform/db/models/locations"
 import { connectToDatabase } from "@/platform/db/mongoose"
 import { buildStateKey } from "@/platform/integrations/geo/state-scopes"
 import { getTrackerAdapter } from "@/platform/integrations/trackers"
@@ -22,6 +23,7 @@ import { materializeLeaderboards, recordLeaderboardPointEvents } from "@/modules
 import { getEffectivePlaceFromRegion, getStateScopeSource } from "@/modules/locations/service"
 import { recomputeMissionProgressForUsers } from "@/modules/missions/service"
 import { getStreamPointValue } from "@/modules/platform-settings/service"
+import { pruneFreeTierOperationalData } from "@/modules/streaming/free-tier-storage"
 import {
   normalizeAlbumName,
   namesRoughlyMatch,
@@ -66,6 +68,16 @@ type UserDoc = {
     fallbackCityKey?: string
     fallbackCityLabel?: string
   }
+}
+
+type InsertedBtsStreamRecord = {
+  playedAt: Date
+  providerUserKey: string
+  providerEventKey: string
+  stateSource?: string
+  stateLabel?: string
+  placeKey?: string
+  placeLabel?: string
 }
 
 let cachedTrackMatchers: CatalogTrackMatcher[] | null = null
@@ -164,6 +176,62 @@ function matchCatalogTrack(
   }
 
   return artistMatches[0] ?? null
+}
+
+async function recordVerifiedStreamTotals(
+  user: UserDoc,
+  streamRecords: InsertedBtsStreamRecord[]
+) {
+  if (streamRecords.length === 0) {
+    return
+  }
+
+  const userLastStreamAt = streamRecords.reduce(
+    (latest, record) => (record.playedAt > latest ? record.playedAt : latest),
+    streamRecords[0].playedAt
+  )
+  const stateGroups = new Map<string, { count: number; lastStreamAt: Date }>()
+
+  for (const record of streamRecords) {
+    if (!record.stateSource) {
+      continue
+    }
+
+    const current = stateGroups.get(record.stateSource)
+
+    if (current) {
+      current.count += 1
+      current.lastStreamAt =
+        record.playedAt > current.lastStreamAt ? record.playedAt : current.lastStreamAt
+      continue
+    }
+
+    stateGroups.set(record.stateSource, {
+      count: 1,
+      lastStreamAt: record.playedAt
+    })
+  }
+
+  const operations = [
+    UserModel.updateOne(
+      { _id: user._id },
+      {
+        $inc: { "streamStats.totalVerifiedBtsStreams": streamRecords.length },
+        $max: { "streamStats.lastVerifiedStreamAt": userLastStreamAt }
+      }
+    ),
+    ...Array.from(stateGroups.entries(), ([stateKey, stats]) =>
+      LocationStateModel.updateOne(
+        { stateKey },
+        {
+          $inc: { "streamStats.totalVerifiedBtsStreams": stats.count },
+          $max: { "streamStats.lastVerifiedStreamAt": stats.lastStreamAt }
+        }
+      )
+    )
+  ]
+
+  await Promise.all(operations)
 }
 
 function buildStreamPointEvents(input: {
@@ -276,10 +344,8 @@ async function syncTrackerConnectionActivity(
   const streamPointValue = options.streamPointValue ?? (await getStreamPointValue())
   const currentPeriods = options.currentPeriods ?? getCurrentIndiaPeriods()
   const streamWriteOperations: Parameters<typeof StreamEventModel.bulkWrite>[0] = []
-  const pointEvents: Parameters<typeof recordLeaderboardPointEvents>[0] = []
-  const locationActivityEvents: ReturnType<typeof buildLocationActivityEvents> = []
+  const insertedStreamRecords: InsertedBtsStreamRecord[] = []
   let scoredEvents = 0
-  let insertedPointEvents = 0
   let hasCurrentMissionImpact = false
 
   for (const event of trackerResult.events) {
@@ -293,6 +359,10 @@ async function syncTrackerConnectionActivity(
     const stateSource = getStateScopeSource(user.region)
     const stateKey = stateSource ? buildStateKey(stateSource) : undefined
     const effectivePlace = getEffectivePlaceFromRegion(user.region)
+
+    if (!matchedTrack) {
+      continue
+    }
 
     streamWriteOperations.push({
       updateOne: {
@@ -313,9 +383,9 @@ async function syncTrackerConnectionActivity(
             albumKey: event.albumKey,
             normalizedTrackKey: normalizeTrackName(event.trackName),
             normalizedArtistKey: normalizeArtistName(event.artistName),
-            catalogTrackId: matchedTrack?._id,
-            catalogTrackSpotifyId: matchedTrack?.spotifyId,
-            isBTSFamily: Boolean(matchedTrack),
+            catalogTrackId: matchedTrack._id,
+            catalogTrackSpotifyId: matchedTrack.spotifyId,
+            isBTSFamily: true,
             stateKey,
             stateLabel: user.region?.state,
             placeKey: effectivePlace?.placeKey,
@@ -326,42 +396,21 @@ async function syncTrackerConnectionActivity(
         upsert: true
       }
     })
-
-    if (!matchedTrack) {
-      continue
-    }
+    insertedStreamRecords.push({
+      playedAt,
+      providerUserKey: event.providerUserKey,
+      providerEventKey: event.providerEventKey,
+      stateSource,
+      stateLabel: user.region?.state,
+      placeKey: effectivePlace?.placeKey,
+      placeLabel: effectivePlace?.placeLabel
+    })
 
     if (
       (playedAt >= currentPeriods.daily.startsAt && playedAt < currentPeriods.daily.endsAt) ||
       (playedAt >= currentPeriods.weekly.startsAt && playedAt < currentPeriods.weekly.endsAt)
     ) {
       hasCurrentMissionImpact = true
-    }
-
-    pointEvents.push(
-      ...buildStreamPointEvents({
-        user,
-        connection,
-        playedAt,
-        sourceId: `${connection.provider}:${event.providerUserKey}:${event.providerEventKey}`,
-        streamPointValue
-      })
-    )
-
-    if (stateSource && user.region?.state) {
-      locationActivityEvents.push(
-        ...buildLocationActivityEvents({
-          occurredAt: playedAt,
-          points: streamPointValue,
-          sourceType: "verified_stream",
-          sourceId: `${connection.provider}:${event.providerUserKey}:${event.providerEventKey}`,
-          userId: user._id,
-          stateKey: stateSource,
-          stateLabel: user.region.state,
-          placeKey: effectivePlace?.placeKey,
-          placeLabel: effectivePlace?.placeLabel
-        })
-      )
     }
   }
 
@@ -370,15 +419,52 @@ async function syncTrackerConnectionActivity(
       ? await StreamEventModel.bulkWrite(streamWriteOperations, { ordered: false })
       : null
   const syncedEvents = streamWriteResult?.upsertedCount ?? 0
+  const insertedIndexes = new Set(
+    Object.keys(streamWriteResult?.upsertedIds ?? {}).map((index) => Number(index))
+  )
+  const newlyInsertedStreamRecords = insertedStreamRecords.filter((_, index) => insertedIndexes.has(index))
+  const pointEvents: Parameters<typeof recordLeaderboardPointEvents>[0] = []
+  const locationActivityEvents: ReturnType<typeof buildLocationActivityEvents> = []
+
+  for (const record of newlyInsertedStreamRecords) {
+    pointEvents.push(
+      ...buildStreamPointEvents({
+        user,
+        connection,
+        playedAt: record.playedAt,
+        sourceId: `${connection.provider}:${record.providerUserKey}:${record.providerEventKey}`,
+        streamPointValue
+      })
+    )
+
+    if (record.stateSource && record.stateLabel) {
+      locationActivityEvents.push(
+        ...buildLocationActivityEvents({
+          occurredAt: record.playedAt,
+          points: streamPointValue,
+          sourceType: "verified_stream",
+          sourceId: `${connection.provider}:${record.providerUserKey}:${record.providerEventKey}`,
+          userId: user._id,
+          stateKey: record.stateSource,
+          stateLabel: record.stateLabel,
+          placeKey: record.placeKey,
+          placeLabel: record.placeLabel
+        })
+      )
+    }
+  }
 
   if (pointEvents.length > 0) {
-    const pointResult = await recordLeaderboardPointEvents(pointEvents)
-    insertedPointEvents = pointResult.inserted
-    scoredEvents += Math.floor(insertedPointEvents / 4)
+    await recordLeaderboardPointEvents(pointEvents)
+    scoredEvents = Math.floor(pointEvents.length / 4)
   }
 
   if (locationActivityEvents.length > 0) {
     await recordLocationActivityEvents(locationActivityEvents)
+  }
+
+  if (newlyInsertedStreamRecords.length > 0) {
+    await recordVerifiedStreamTotals(user, newlyInsertedStreamRecords)
   }
 
   await TrackerConnectionModel.updateOne(
@@ -417,7 +503,7 @@ async function syncTrackerConnectionActivity(
     scoredEvents,
     provider: connection.provider,
     checkpoint: trackerResult.nextCheckpoint ?? connection.lastCheckpoint ?? null,
-    ...(options.deferMissionRecompute && insertedPointEvents > 0 && hasCurrentMissionImpact
+    ...(options.deferMissionRecompute && newlyInsertedStreamRecords.length > 0 && hasCurrentMissionImpact
       ? { missionRecomputeUser: user }
       : {})
   } satisfies SyncTrackerConnectionActivityResult
@@ -543,6 +629,13 @@ export async function syncVerifiedTrackerConnections() {
 
   logTrackerSync("tracker_sync_materialization_completed", {
     durationMs: Date.now() - materializationStartedAt
+  })
+
+  const cleanupStartedAt = Date.now()
+  const cleanupSummary = await pruneFreeTierOperationalData()
+  logTrackerSync("tracker_sync_cleanup_completed", {
+    durationMs: Date.now() - cleanupStartedAt,
+    ...cleanupSummary
   })
 
   logTrackerSync("tracker_sync_run_completed", {

@@ -43,6 +43,17 @@ type PointEventInput = {
   stateKey?: string
 }
 
+type LeaderboardScoreDelta = {
+  boardId: Types.ObjectId
+  competitorType: "user" | "state"
+  competitorKey: string
+  userId?: Types.ObjectId
+  stateKey?: string
+  displayName: string
+  scoreDelta: number
+  lastQualifiedAt?: Date
+}
+
 type LeaderboardEntryDoc = {
   _id: Types.ObjectId
   boardId: Types.ObjectId
@@ -159,6 +170,105 @@ async function ensureLeaderboardBoardsForEvents(events: PointEventInput[]) {
   )
 }
 
+function buildLeaderboardScoreDeltas(
+  events: PointEventInput[],
+  boardMap: Map<string, Awaited<ReturnType<typeof ensureLeaderboardBoardForPeriod>>>
+) {
+  const grouped = new Map<string, LeaderboardScoreDelta>()
+
+  for (const event of events) {
+    const period = getIndiaPeriod(event.cadence, event.periodAt)
+    const board = boardMap.get(`${event.cadence}:${event.boardType}:${period.periodKey}`)
+
+    if (!board) {
+      continue
+    }
+
+    const key = `${String(board._id)}:${event.competitorKey}`
+    const current = grouped.get(key)
+
+    if (current) {
+      current.scoreDelta += event.points
+      current.displayName = event.displayName
+      current.userId = event.userId ?? current.userId
+      current.stateKey = event.stateKey ?? current.stateKey
+      current.lastQualifiedAt =
+        event.points > 0
+          ? current.lastQualifiedAt && current.lastQualifiedAt > event.occurredAt
+            ? current.lastQualifiedAt
+            : event.occurredAt
+          : current.lastQualifiedAt
+      continue
+    }
+
+    grouped.set(key, {
+      boardId: board._id,
+      competitorType: event.competitorType,
+      competitorKey: event.competitorKey,
+      userId: event.userId,
+      stateKey: event.stateKey,
+      displayName: event.displayName,
+      scoreDelta: event.points,
+      lastQualifiedAt: event.points > 0 ? event.occurredAt : undefined
+    })
+  }
+
+  return Array.from(grouped.values()).filter((delta) => delta.scoreDelta !== 0)
+}
+
+async function applyLeaderboardScoreDeltas(deltas: LeaderboardScoreDelta[]) {
+  if (deltas.length === 0) {
+    return { inserted: 0 }
+  }
+
+  await LeaderboardEntryModel.bulkWrite(
+    deltas.map((delta) => {
+      const update: Record<string, unknown> = {
+        $set: {
+          competitorType: delta.competitorType,
+          userId: delta.userId,
+          stateKey: delta.stateKey,
+          displayName: delta.displayName
+        },
+        $inc: {
+          score: delta.scoreDelta
+        }
+      }
+
+      if (delta.lastQualifiedAt) {
+        update.$max = {
+          lastQualifiedAt: delta.lastQualifiedAt
+        }
+      }
+
+      return {
+        updateOne: {
+          filter: {
+            boardId: delta.boardId,
+            competitorKey: delta.competitorKey
+          },
+          update,
+          upsert: delta.scoreDelta > 0
+        }
+      }
+    }),
+    { ordered: false }
+  )
+
+  await LeaderboardBoardModel.updateMany(
+    {
+      _id: {
+        $in: Array.from(new Set(deltas.map((delta) => String(delta.boardId))), (boardId) => new Types.ObjectId(boardId))
+      }
+    },
+    { $set: { isDirty: true } }
+  )
+
+  revalidateCacheTags(cacheTags.leaderboards)
+
+  return { inserted: deltas.filter((delta) => delta.scoreDelta > 0).length }
+}
+
 export async function recordLeaderboardPointEvents(events: PointEventInput[]) {
   await connectToDatabase()
 
@@ -171,64 +281,29 @@ export async function recordLeaderboardPointEvents(events: PointEventInput[]) {
   }
 
   const boardMap = await ensureLeaderboardBoardsForEvents(filteredEvents)
-  const operations: Parameters<typeof LeaderboardPointEventModel.bulkWrite>[0] = []
-  const affectedBoardIds = new Set<string>()
+  const deltas = buildLeaderboardScoreDeltas(filteredEvents, boardMap)
+  return applyLeaderboardScoreDeltas(deltas)
+}
 
-  for (const event of filteredEvents) {
-    const period = getIndiaPeriod(event.cadence, event.periodAt)
-    const board = boardMap.get(`${event.cadence}:${event.boardType}:${period.periodKey}`)
+export async function rollbackLeaderboardPointEvents(events: PointEventInput[]) {
+  await connectToDatabase()
 
-    if (!board) {
-      continue
-    }
+  const filteredEvents = events
+    .map((event) => ({
+      ...event,
+      points: -Math.abs(event.points)
+    }))
+    .filter(
+      (event) => event.competitorKey.trim().length > 0 && event.displayName.trim().length > 0
+    )
 
-    affectedBoardIds.add(String(board._id))
-    operations.push({
-      updateOne: {
-        filter: { dedupeKey: event.dedupeKey },
-        update: {
-          $setOnInsert: {
-            boardId: board._id,
-            boardType: event.boardType,
-            period: event.cadence,
-            periodKey: board.periodKey,
-            competitorType: event.competitorType,
-            competitorKey: event.competitorKey,
-            userId: event.userId,
-            stateKey: event.stateKey,
-            displayName: event.displayName,
-            points: event.points,
-            occurredAt: event.occurredAt,
-            sourceType: event.sourceType,
-            sourceId: event.sourceId,
-            dedupeKey: event.dedupeKey
-          }
-        },
-        upsert: true
-      }
-    })
-  }
-
-  if (operations.length === 0) {
+  if (filteredEvents.length === 0) {
     return { inserted: 0 }
   }
 
-  const result = await LeaderboardPointEventModel.bulkWrite(operations, { ordered: false })
-
-  if ((result.upsertedCount ?? 0) > 0) {
-    await LeaderboardBoardModel.updateMany(
-      {
-        _id: {
-          $in: Array.from(affectedBoardIds, (boardId) => new Types.ObjectId(boardId))
-        }
-      },
-      { $set: { isDirty: true } }
-    )
-
-    revalidateCacheTags(cacheTags.leaderboards)
-  }
-
-  return { inserted: result.upsertedCount ?? 0 }
+  const boardMap = await ensureLeaderboardBoardsForEvents(filteredEvents)
+  const deltas = buildLeaderboardScoreDeltas(filteredEvents, boardMap)
+  return applyLeaderboardScoreDeltas(deltas)
 }
 
 function toSnapshotEntry(entry: {
@@ -308,50 +383,8 @@ export async function materializeLeaderboards(options: {
       const previousRankMap = new Map(
         previousEntries.map((entry) => [entry.competitorKey, entry.rank ?? null] as const)
       )
-      const pointEvents = await LeaderboardPointEventModel.find({ boardId: board._id })
-        .sort({ occurredAt: 1, createdAt: 1, _id: 1 })
-        .lean()
-
-      const aggregateMap = new Map<
-        string,
-        {
-          competitorType: "user" | "state"
-          competitorKey: string
-          userId?: Types.ObjectId
-          stateKey?: string
-          displayName: string
-          score: number
-          lastQualifiedAt?: Date
-        }
-      >()
-
-      for (const event of pointEvents) {
-        const eventOccurredAt = event.occurredAt ?? event.createdAt
-        const current = aggregateMap.get(event.competitorKey)
-
-        if (current) {
-          current.score += event.points
-          current.displayName = event.displayName
-          current.lastQualifiedAt =
-            current.lastQualifiedAt && current.lastQualifiedAt > eventOccurredAt
-              ? current.lastQualifiedAt
-              : eventOccurredAt
-          current.userId = event.userId ?? current.userId
-          current.stateKey = event.stateKey ?? current.stateKey
-        } else {
-          aggregateMap.set(event.competitorKey, {
-            competitorType: event.competitorType as "user" | "state",
-            competitorKey: event.competitorKey,
-            userId: event.userId as Types.ObjectId | undefined,
-            stateKey: event.stateKey,
-            displayName: event.displayName,
-            score: event.points,
-            lastQualifiedAt: eventOccurredAt
-          })
-        }
-      }
-
-      const rankedEntries = Array.from(aggregateMap.values())
+      const rankedEntries = previousEntries
+        .filter((entry) => entry.score > 0)
         .sort((left, right) => {
           if (right.score !== left.score) {
             return right.score - left.score
@@ -408,6 +441,11 @@ export async function materializeLeaderboards(options: {
         await LeaderboardEntryModel.deleteMany({ boardId: board._id })
       }
 
+      await LeaderboardEntryModel.deleteMany({
+        boardId: board._id,
+        score: { $lte: 0 }
+      })
+
       await LeaderboardRankSnapshotModel.create({
         boardId: board._id,
         topEntries: rankedEntries.slice(0, 10).map(toSnapshotEntry),
@@ -452,6 +490,140 @@ export async function materializeLeaderboards(options: {
   return {
     boardsMaterialized
   }
+}
+
+export async function backfillCurrentLeaderboardsFromLegacyPointEvents() {
+  await connectToDatabase()
+
+  const periods = getCurrentIndiaPeriods()
+  const boards = await ensureCurrentLeaderboardBoards()
+  let boardsBackfilled = 0
+
+  for (const board of boards.values()) {
+    if (![periods.daily.periodKey, periods.weekly.periodKey].includes(board.periodKey)) {
+      continue
+    }
+
+    const pointEvents = await LeaderboardPointEventModel.find({ boardId: board._id })
+      .sort({ occurredAt: 1, createdAt: 1, _id: 1 })
+      .lean()
+
+    if (pointEvents.length === 0) {
+      continue
+    }
+
+    const aggregateMap = new Map<
+      string,
+      {
+        competitorType: "user" | "state"
+        competitorKey: string
+        userId?: Types.ObjectId
+        stateKey?: string
+        displayName: string
+        score: number
+        lastQualifiedAt?: Date
+      }
+    >()
+
+    for (const event of pointEvents) {
+      const eventOccurredAt = event.occurredAt ?? event.createdAt
+      const current = aggregateMap.get(event.competitorKey)
+
+      if (current) {
+        current.score += event.points
+        current.displayName = event.displayName
+        current.lastQualifiedAt =
+          current.lastQualifiedAt && current.lastQualifiedAt > eventOccurredAt
+            ? current.lastQualifiedAt
+            : eventOccurredAt
+        current.userId = event.userId ?? current.userId
+        current.stateKey = event.stateKey ?? current.stateKey
+        continue
+      }
+
+      aggregateMap.set(event.competitorKey, {
+        competitorType: event.competitorType as "user" | "state",
+        competitorKey: event.competitorKey,
+        userId: event.userId as Types.ObjectId | undefined,
+        stateKey: event.stateKey,
+        displayName: event.displayName,
+        score: event.points,
+        lastQualifiedAt: eventOccurredAt
+      })
+    }
+
+    const rankedEntries = Array.from(aggregateMap.values())
+      .filter((entry) => entry.score > 0)
+      .sort((left, right) => {
+        if (right.score !== left.score) {
+          return right.score - left.score
+        }
+
+        const leftTime = left.lastQualifiedAt?.getTime() ?? 0
+        const rightTime = right.lastQualifiedAt?.getTime() ?? 0
+
+        if (leftTime !== rightTime) {
+          return leftTime - rightTime
+        }
+
+        return left.displayName.localeCompare(right.displayName)
+      })
+      .map((entry, index) => ({
+        ...entry,
+        rank: index + 1,
+        previousRank: null
+      }))
+
+    if (rankedEntries.length > 0) {
+      await LeaderboardEntryModel.bulkWrite(
+        rankedEntries.map((entry) => ({
+          updateOne: {
+            filter: {
+              boardId: board._id,
+              competitorKey: entry.competitorKey
+            },
+            update: {
+              $set: {
+                competitorType: entry.competitorType,
+                userId: entry.userId,
+                stateKey: entry.stateKey,
+                displayName: entry.displayName,
+                score: entry.score,
+                rank: entry.rank,
+                previousRank: entry.previousRank,
+                lastQualifiedAt: entry.lastQualifiedAt
+              }
+            },
+            upsert: true
+          }
+        })),
+        { ordered: false }
+      )
+    }
+
+    await LeaderboardEntryModel.deleteMany({
+      boardId: board._id,
+      competitorKey: {
+        $nin: rankedEntries.map((entry) => entry.competitorKey)
+      }
+    })
+    await LeaderboardBoardModel.updateOne(
+      { _id: board._id },
+      {
+        $set: {
+          isDirty: true
+        }
+      }
+    )
+
+    boardsBackfilled += 1
+  }
+
+  await materializeLeaderboards({
+    boardIds: Array.from(boards.values()).map((board) => board._id)
+  })
+
+  return { boardsBackfilled }
 }
 
 async function buildEntryViewsFromSnapshot(boardId: Types.ObjectId) {

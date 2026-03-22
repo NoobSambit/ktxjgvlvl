@@ -10,6 +10,8 @@
     "job:sync-active-trackers": "npm run job:run -- sync-active-trackers",
     "lint": "next lint",
     "type-check": "tsc --noEmit",
+    "migrate:free-tier-storage": "node --no-warnings=ExperimentalWarning --experimental-strip-types --loader ./scripts/ts-runtime-loader.mjs ./scripts/migrate-free-tier-storage.mjs",
+    "cleanup:drop-legacy-storage": "node --no-warnings=ExperimentalWarning --experimental-strip-types --loader ./scripts/ts-runtime-loader.mjs ./scripts/drop-legacy-storage-collections.mjs",
     "import:armyverse-catalog": "node scripts/import-armyverse-catalog.mjs",
     "normalize:india-topojson": "node scripts/normalize-india-topojson.mjs",
     "build:india-render-geojson": "node scripts/build-india-render-geojson.mjs",
