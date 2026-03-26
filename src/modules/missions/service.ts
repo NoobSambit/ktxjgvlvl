@@ -1538,7 +1538,7 @@ async function getRelevantStreamEvents(
   startsAt: Date,
   endsAt: Date
 ) {
-  return StreamEventModel.find({
+  const events = (await StreamEventModel.find({
     ...filter,
     isBTSFamily: true,
     playedAt: {
@@ -1546,7 +1546,6 @@ async function getRelevantStreamEvents(
       $lt: endsAt
     }
   })
-    .sort({ playedAt: 1, _id: 1 })
     .select({
       _id: 1,
       userId: 1,
@@ -1556,7 +1555,17 @@ async function getRelevantStreamEvents(
       isBTSFamily: 1,
       stateKey: 1
     })
-    .lean() as unknown as Promise<StreamEventDoc[]>
+    .lean()) as unknown as StreamEventDoc[]
+
+  return events.sort((left, right) => {
+    const timeDifference = left.playedAt.getTime() - right.playedAt.getTime()
+
+    if (timeDifference !== 0) {
+      return timeDifference
+    }
+
+    return String(left._id).localeCompare(String(right._id))
+  })
 }
 
 function countMatchingTrackStreams(
