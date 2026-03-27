@@ -891,10 +891,6 @@ async function main() {
 
   console.log("Recomputing mission progress for relevant users...")
   const recomputedUsers = await recomputeCurrentMissionProgress()
-  console.log("Materializing leaderboards...")
-  const leaderboardResult = await materializeLeaderboards()
-  console.log("Materializing location activity...")
-  const locationResult = await materializeLocationActivity()
   console.log("Summarizing current missions...")
   const missions = await summarizeCurrentMissions()
 
@@ -907,8 +903,8 @@ async function main() {
           trackCount: album.tracks.length
         },
         recomputedUsers,
-        leaderboardsMaterialized: leaderboardResult.boardsMaterialized,
-        locationSnapshotsMaterialized: locationResult.snapshotsMaterialized,
+        leaderboardsMaterialized: "skipped",
+        locationSnapshotsMaterialized: "skipped",
         missions
       },
       null,

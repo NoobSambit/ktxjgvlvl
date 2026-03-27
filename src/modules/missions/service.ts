@@ -683,10 +683,10 @@ const getCachedCurrentMissionInstancesPayload = unstable_cache(async () => {
 })
 
 async function getCurrentMissionInstancesForRead() {
-  const cachedInstances = (await getCachedCurrentMissionInstancesPayload()).map(deserializeMissionInstance)
+  const liveInstances = await getCurrentMissionInstances()
 
-  if (cachedInstances.length > 0) {
-    return cachedInstances
+  if (liveInstances.length > 0) {
+    return liveInstances
   }
 
   const ensuredInstances = await ensureCurrentMissionInstances()
@@ -1378,32 +1378,13 @@ async function buildMissionCardsForUser(
 ): Promise<MissionCard[]> {
   const instances = await getCurrentMissionInstancesForRead()
   const stateKey = user.region?.state ? buildStateKey(user.region.state) : undefined
-  const cachedInstancesPayload = await getCachedCurrentMissionInstancesPayload()
-  const canUseSharedMissionCaches =
-    cachedInstancesPayload.length === instances.length &&
-    cachedInstancesPayload.every((instance, index) => instance.id === String(instances[index]?._id))
-
-  const [userProgressMap, contributionMap, playedTrackSets, sharedProgressSource, imageSource] = await Promise.all([
+  const [userProgressMap, contributionMap, playedTrackSets, sharedProgressMap, imageSource] = await Promise.all([
     getMissionProgressMap(user._id, instances),
     getMissionContributionMap(user._id, instances),
     getUserPlayedTrackSetsForInstances(user._id, instances),
-    canUseSharedMissionCaches
-      ? getCachedSharedMissionProgressPayload(stateKey ?? null)
-      : getSharedProgressMap(stateKey, instances),
-    canUseSharedMissionCaches
-      ? getCachedMissionTargetImagePayload()
-      : buildMissionTargetImagePayload(instances)
+    getSharedProgressMap(stateKey, instances),
+    buildMissionTargetImagePayload(instances)
   ])
-  const sharedProgressMap =
-    sharedProgressSource instanceof Map
-      ? sharedProgressSource
-      : new Map(
-          sharedProgressSource.map((progress) => {
-            const hydratedProgress = deserializeSharedMissionProgress(progress)
-
-            return [`${String(hydratedProgress.missionInstanceId)}:${hydratedProgress.scopeKey}`, hydratedProgress] as const
-          })
-        )
   const imageMaps = toMissionTargetImageMaps(imageSource)
 
   return instances.map((instance) => {
@@ -2434,17 +2415,10 @@ export async function listMissionCards(): Promise<MissionCard[]> {
 
 export async function listMissionPreviewCards(): Promise<MissionCard[]> {
   const instances = await getCurrentMissionInstancesForRead()
-  const [sharedProgressPayload, imagePayload] = await Promise.all([
-    getCachedSharedMissionProgressPayload(null),
-    getCachedMissionTargetImagePayload()
+  const [sharedProgressMap, imagePayload] = await Promise.all([
+    getSharedProgressMap(undefined, instances),
+    buildMissionTargetImagePayload(instances)
   ])
-  const sharedProgressMap = new Map(
-    sharedProgressPayload.map((progress) => {
-      const hydratedProgress = deserializeSharedMissionProgress(progress)
-
-      return [`${String(hydratedProgress.missionInstanceId)}:${hydratedProgress.scopeKey}`, hydratedProgress] as const
-    })
-  )
   const imageMaps = toMissionTargetImageMaps(imagePayload)
 
   return instances.map((instance) => {
